@@ -78,7 +78,7 @@ class TSCPrinter:
 
         # Sticker layout (each sticker: 51mm x 38mm = 408 x 304 dots)
         margin = 45              # ~5.6mm left margin (moved further right)
-        top_margin = 20          # ~2.5mm top margin
+        top_margin = 35          # ~4.4mm top margin
         usable_width = self.sticker_width - (margin * 2)  # ~318 dots
 
         # X offset for right sticker
