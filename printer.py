@@ -83,42 +83,44 @@ class TSCPrinter:
         # X offset for right sticker (sticker_width + gap = 304 + 24 = 328)
         right_offset = self.sticker_width + self.sticker_gap
 
-        # Vertical layout for 408 dots height:
-        # - Barcode at top: y=30, height=55 (ends ~85, text below ~105)
-        # - Destination: y=300 (moved up from 355 to reduce empty space)
-        # - Packed by: y=340 (moved up from 380)
-
         # Print identical content on BOTH stickers
         for x_offset in [0, right_offset]:
             x_start = margin + x_offset
 
-            # Barcode/QR at top section
+            # Product name at top (font 2 = 12 dots/char)
+            product_text = f"Product: {self._truncate_to_fit(product_name, usable_width - 72, '2')}"
+            commands.append(self.generate_tspl_text(
+                product_text,
+                x=x_start, y=10, font="2", x_mult=1, y_mult=1
+            ))
+
+            # Barcode/QR in middle section
             if use_qrcode:
                 # QR code centered horizontally
                 qr_x = x_start + (usable_width - 120) // 2
                 commands.append(self.generate_tspl_qrcode(
-                    barcode_data, x=qr_x, y=30, cell_width=4
+                    barcode_data, x=qr_x, y=50, cell_width=4
                 ))
             else:
                 # Barcode in landscape orientation (horizontal)
-                # Positioned near top with margin
+                # Centered in middle section of sticker
                 commands.append(self.generate_tspl_barcode(
-                    barcode_data, x=x_start, y=30, height=55, human_readable=2,
+                    barcode_data, x=x_start, y=80, height=60, human_readable=2,
                     rotation=0, narrow=1, wide=2
                 ))
 
-            # Destination - moved up to reduce empty space (font 2 for larger text)
+            # Destination near bottom
             dest_text = f"Dest: {self._truncate_to_fit(location_name, usable_width - 48, '2')}"
             commands.append(self.generate_tspl_text(
                 dest_text,
-                x=x_start, y=300, font="2", x_mult=1, y_mult=1
+                x=x_start, y=355, font="2", x_mult=1, y_mult=1
             ))
 
-            # Packed by - positioned below destination
+            # Packed by at bottom
             packer_text = f"Packed by: {self._truncate_to_fit(packer_name, usable_width - 80, '1')}"
             commands.append(self.generate_tspl_text(
                 packer_text,
-                x=x_start, y=340, font="1", x_mult=1, y_mult=1
+                x=x_start, y=380, font="1", x_mult=1, y_mult=1
             ))
 
         # Print command
