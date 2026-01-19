@@ -110,6 +110,41 @@ def init_database():
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ''')
 
+    # Cartons table - for tracking boxes/cartons
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS cartons (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            barcode VARCHAR(50) UNIQUE NOT NULL,
+            location_id INT,
+            packer_id INT,
+            status ENUM('open', 'closed') DEFAULT 'open',
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            closed_at TIMESTAMP NULL,
+            FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE SET NULL,
+            FOREIGN KEY (packer_id) REFERENCES packers(id) ON DELETE SET NULL,
+            INDEX idx_barcode (barcode),
+            INDEX idx_status (status),
+            INDEX idx_created_at (created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ''')
+
+    # Carton contents table - tracks products inside each carton
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS carton_contents (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            carton_id INT NOT NULL,
+            product_id INT NOT NULL,
+            quantity INT DEFAULT 1,
+            product_barcode VARCHAR(100),
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (carton_id) REFERENCES cartons(id) ON DELETE CASCADE,
+            FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+            INDEX idx_carton_id (carton_id),
+            INDEX idx_product_id (product_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ''')
+
     conn.commit()
     cursor.close()
     conn.close()
@@ -540,6 +575,269 @@ def get_location_stats(date: Optional[str] = None):
     cursor.close()
     conn.close()
     return stats
+
+
+# ============== CARTON FUNCTIONS ==============
+
+def generate_carton_barcode() -> str:
+    """Generate a unique carton barcode"""
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    # Get count of cartons today for sequence number
+    conn = get_connection()
+    cursor = conn.cursor()
+    today = datetime.now().strftime("%Y-%m-%d")
+    cursor.execute(
+        "SELECT COUNT(*) FROM cartons WHERE DATE(created_at) = %s",
+        (today,)
+    )
+    count = cursor.fetchone()[0] + 1
+    cursor.close()
+    conn.close()
+    return f"CTN-{timestamp}-{count:04d}"
+
+
+def create_carton(location_id: int, packer_id: int, notes: str = "") -> tuple:
+    """Create a new carton and return (carton_id, barcode)"""
+    barcode = generate_carton_barcode()
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """INSERT INTO cartons (barcode, location_id, packer_id, notes)
+           VALUES (%s, %s, %s, %s)""",
+        (barcode, location_id, packer_id, notes)
+    )
+    conn.commit()
+    carton_id = cursor.lastrowid
+    cursor.close()
+    conn.close()
+    return carton_id, barcode
+
+
+def get_carton_by_id(carton_id: int):
+    """Get carton by ID with full details"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT
+            c.*,
+            l.code as location_code,
+            l.name as location_name,
+            p.code as packer_code,
+            p.name as packer_name
+        FROM cartons c
+        LEFT JOIN locations l ON c.location_id = l.id
+        LEFT JOIN packers p ON c.packer_id = p.id
+        WHERE c.id = %s
+    ''', (carton_id,))
+    row = cursor.fetchone()
+    carton = row_to_dict(cursor, row)
+    cursor.close()
+    conn.close()
+    return carton
+
+
+def get_carton_by_barcode(barcode: str):
+    """Get carton by barcode with full details"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT
+            c.*,
+            l.code as location_code,
+            l.name as location_name,
+            p.code as packer_code,
+            p.name as packer_name
+        FROM cartons c
+        LEFT JOIN locations l ON c.location_id = l.id
+        LEFT JOIN packers p ON c.packer_id = p.id
+        WHERE c.barcode = %s
+    ''', (barcode,))
+    row = cursor.fetchone()
+    carton = row_to_dict(cursor, row)
+    cursor.close()
+    conn.close()
+    return carton
+
+
+def get_all_cartons(status: str = None, limit: int = 100):
+    """Get all cartons, optionally filtered by status"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    if status:
+        cursor.execute('''
+            SELECT
+                c.*,
+                l.code as location_code,
+                l.name as location_name,
+                p.code as packer_code,
+                p.name as packer_name,
+                (SELECT COUNT(*) FROM carton_contents WHERE carton_id = c.id) as item_count,
+                (SELECT SUM(quantity) FROM carton_contents WHERE carton_id = c.id) as total_quantity
+            FROM cartons c
+            LEFT JOIN locations l ON c.location_id = l.id
+            LEFT JOIN packers p ON c.packer_id = p.id
+            WHERE c.status = %s
+            ORDER BY c.created_at DESC
+            LIMIT %s
+        ''', (status, limit))
+    else:
+        cursor.execute('''
+            SELECT
+                c.*,
+                l.code as location_code,
+                l.name as location_name,
+                p.code as packer_code,
+                p.name as packer_name,
+                (SELECT COUNT(*) FROM carton_contents WHERE carton_id = c.id) as item_count,
+                (SELECT SUM(quantity) FROM carton_contents WHERE carton_id = c.id) as total_quantity
+            FROM cartons c
+            LEFT JOIN locations l ON c.location_id = l.id
+            LEFT JOIN packers p ON c.packer_id = p.id
+            ORDER BY c.created_at DESC
+            LIMIT %s
+        ''', (limit,))
+    rows = cursor.fetchall()
+    cartons = rows_to_dicts(cursor, rows)
+    cursor.close()
+    conn.close()
+    return cartons
+
+
+def get_open_cartons():
+    """Get all open cartons for selection"""
+    return get_all_cartons(status='open')
+
+
+def close_carton(carton_id: int):
+    """Close/seal a carton"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE cartons SET status = 'closed', closed_at = NOW() WHERE id = %s",
+        (carton_id,)
+    )
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+def reopen_carton(carton_id: int):
+    """Reopen a closed carton"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE cartons SET status = 'open', closed_at = NULL WHERE id = %s",
+        (carton_id,)
+    )
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+def delete_carton(carton_id: int):
+    """Delete a carton and its contents"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    # Contents will be deleted automatically due to CASCADE
+    cursor.execute("DELETE FROM cartons WHERE id = %s", (carton_id,))
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+# ============== CARTON CONTENTS FUNCTIONS ==============
+
+def add_product_to_carton(carton_id: int, product_id: int, quantity: int = 1,
+                          product_barcode: str = None) -> int:
+    """Add a product to a carton"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """INSERT INTO carton_contents (carton_id, product_id, quantity, product_barcode)
+           VALUES (%s, %s, %s, %s)""",
+        (carton_id, product_id, quantity, product_barcode)
+    )
+    conn.commit()
+    content_id = cursor.lastrowid
+    cursor.close()
+    conn.close()
+    return content_id
+
+
+def remove_product_from_carton(content_id: int):
+    """Remove a specific product entry from a carton"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM carton_contents WHERE id = %s", (content_id,))
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+def get_carton_contents(carton_id: int):
+    """Get all products in a carton"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT
+            cc.*,
+            p.code as product_code,
+            p.name as product_name,
+            p.description as product_description
+        FROM carton_contents cc
+        JOIN products p ON cc.product_id = p.id
+        WHERE cc.carton_id = %s
+        ORDER BY cc.added_at DESC
+    ''', (carton_id,))
+    rows = cursor.fetchall()
+    contents = rows_to_dicts(cursor, rows)
+    cursor.close()
+    conn.close()
+    return contents
+
+
+def get_carton_summary(carton_id: int):
+    """Get summary of carton contents (grouped by product)"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT
+            p.code as product_code,
+            p.name as product_name,
+            COUNT(*) as entries,
+            SUM(cc.quantity) as total_quantity
+        FROM carton_contents cc
+        JOIN products p ON cc.product_id = p.id
+        WHERE cc.carton_id = %s
+        GROUP BY p.id, p.code, p.name
+        ORDER BY p.name
+    ''', (carton_id,))
+    rows = cursor.fetchall()
+    summary = rows_to_dicts(cursor, rows)
+    cursor.close()
+    conn.close()
+    return summary
+
+
+def lookup_carton_by_barcode(barcode: str):
+    """Look up a carton by barcode and return full details including contents"""
+    carton = get_carton_by_barcode(barcode)
+    if carton:
+        carton['contents'] = get_carton_contents(carton['id'])
+        carton['summary'] = get_carton_summary(carton['id'])
+    return carton
+
+
+def get_product_by_code(code: str):
+    """Get product by code"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM products WHERE code = %s", (code.upper(),))
+    row = cursor.fetchone()
+    product = row_to_dict(cursor, row)
+    cursor.close()
+    conn.close()
+    return product
 
 
 def test_connection():
