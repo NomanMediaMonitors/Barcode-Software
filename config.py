@@ -2,8 +2,14 @@
 Configuration settings for Barcode Software
 """
 
-# Database settings
-DATABASE_PATH = "barcode_data.db"
+# MySQL Database settings
+DATABASE_CONFIG = {
+    "host": "172.168.100.215",
+    "user": "dev",
+    "password": "master",
+    "database": "barcode_system",
+    "port": 3306,
+}
 
 # Barcode settings
 BARCODE_TYPE = "code128"  # Options: code128, code39, ean13, qrcode

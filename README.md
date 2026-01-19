@@ -7,7 +7,7 @@ A complete barcode generation and printing solution for inventory management wit
 - **Barcode Generation**: Support for Code128 and QR codes
 - **Metadata Embedding**: Encode destination, product, and packer information
 - **Direct Printing**: Native support for TSC TE200 thermal printer via TSPL commands
-- **Data Management**: SQLite database for products, locations, and packers
+- **Data Management**: MySQL database for products, locations, and packers
 - **History Tracking**: Complete audit trail of all printed labels
 - **Statistics**: Daily packing statistics by worker
 
@@ -38,6 +38,7 @@ Required packages:
 - `python-barcode` - Barcode generation
 - `qrcode` - QR code generation
 - `Pillow` - Image processing
+- `mysql-connector-python` - MySQL database connectivity
 - `pyserial` - Serial port communication (optional, for direct printer connection)
 - `reportlab` - PDF generation (optional)
 
@@ -46,7 +47,23 @@ For Windows direct printing, also install:
 pip install pywin32
 ```
 
-### 2. Setup Sample Data (Optional)
+### 2. Configure MySQL Database
+
+The software uses MySQL for data storage. Edit `config.py` to set your database credentials:
+
+```python
+DATABASE_CONFIG = {
+    "host": "172.168.100.215",
+    "user": "dev",
+    "password": "master",
+    "database": "barcode_system",
+    "port": 3306,
+}
+```
+
+The database and tables will be created automatically on first run.
+
+### 3. Setup Sample Data (Optional)
 
 ```bash
 python setup_sample_data.py
@@ -133,12 +150,11 @@ The software can:
 Barcode-Software/
 ├── app.py                 # Main GUI application
 ├── barcode_generator.py   # Barcode/QR code generation
-├── database.py            # SQLite database operations
+├── database.py            # MySQL database operations
 ├── printer.py             # TSC TE200 printer integration
-├── config.py              # Configuration settings
+├── config.py              # Configuration settings (DB + Printer)
 ├── setup_sample_data.py   # Sample data initialization
 ├── requirements.in        # Python dependencies
-├── barcode_data.db        # SQLite database (created on first run)
 └── barcodes/              # Generated barcode images
 ```
 
@@ -189,8 +205,11 @@ Your receiving system can parse this to extract:
 3. Try QR code instead of Code128
 
 ### Database Errors
-1. Delete `barcode_data.db` to reset
-2. Run `setup_sample_data.py` again
+1. Verify MySQL server is running at 172.168.100.215
+2. Check network connectivity: `ping 172.168.100.215`
+3. Verify credentials in `config.py`
+4. Ensure user 'dev' has CREATE DATABASE privileges
+5. Run `python setup_sample_data.py` to test connection and reinitialize
 
 ## License
 

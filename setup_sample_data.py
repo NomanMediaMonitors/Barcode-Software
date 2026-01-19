@@ -1,15 +1,39 @@
 """
 Setup script to initialize sample data for the Barcode Software
 Run this once to populate your database with sample products, locations, and packers
+
+Requires MySQL server running at 172.168.100.215
 """
 
+import sys
 import database as db
+from config import DATABASE_CONFIG
 
 
 def setup_sample_data():
     """Initialize database with sample data"""
 
-    print("Setting up sample data...")
+    print("=" * 50)
+    print("Barcode Software - Database Setup")
+    print("=" * 50)
+
+    # Test connection first
+    print(f"\nConnecting to MySQL server at {DATABASE_CONFIG['host']}...")
+    success, message = db.test_connection()
+
+    if not success:
+        print(f"ERROR: {message}")
+        print("\nPlease check:")
+        print("  1. MySQL server is running")
+        print("  2. Network connectivity to 172.168.100.215")
+        print("  3. User 'dev' has proper permissions")
+        sys.exit(1)
+
+    print("Connection successful!")
+    print("\nInitializing database tables...")
+    db.init_database()
+
+    print("\nSetting up sample data...")
 
     # ============== PRODUCTS (3 items) ==============
     products = [
