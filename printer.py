@@ -32,7 +32,8 @@ class TSCPrinter:
             "DIRECTION 1,0",
             "CLS",
         ]
-        return "\n".join(commands)
+        # TSPL requires CRLF line endings
+        return "\r\n".join(commands)
 
     def generate_tspl_barcode(self, barcode_data: str, x: int = 50, y: int = 50,
                                barcode_type: str = "128", height: int = 80,
@@ -86,7 +87,8 @@ class TSCPrinter:
         # Print command
         commands.append("PRINT 1,1")
 
-        return "\n".join(commands)
+        # TSPL requires CRLF line endings
+        return "\r\n".join(commands)
 
     @staticmethod
     def list_printers() -> List[str]:
@@ -166,7 +168,8 @@ class TSCPrinter:
                 win32print.StartDocPrinter(handle, 1, ("Barcode Label", None, "RAW"))
                 try:
                     win32print.StartPagePrinter(handle)
-                    win32print.WritePrinter(handle, tspl_commands.encode('utf-8'))
+                    # TSC printers expect ASCII encoding, not UTF-8
+                    win32print.WritePrinter(handle, tspl_commands.encode('ascii', errors='replace'))
                     win32print.EndPagePrinter(handle)
                 finally:
                     win32print.EndDocPrinter(handle)
@@ -182,8 +185,9 @@ class TSCPrinter:
 
     def _send_via_file_copy(self, tspl_commands: str, printer_name: str) -> bool:
         try:
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.prn', delete=False) as f:
-                f.write(tspl_commands)
+            # Use binary mode with ASCII encoding to preserve CRLF line endings
+            with tempfile.NamedTemporaryFile(mode='wb', suffix='.prn', delete=False) as f:
+                f.write(tspl_commands.encode('ascii', errors='replace'))
                 temp_file = f.name
 
             try:
@@ -214,7 +218,8 @@ class TSCPrinter:
             try:
                 port_path = f"\\\\.\\{port}"
                 with open(port_path, 'wb') as f:
-                    f.write(tspl_commands.encode('utf-8'))
+                    # TSC printers expect ASCII encoding, not UTF-8
+                    f.write(tspl_commands.encode('ascii', errors='replace'))
                 return True
             except Exception:
                 continue
@@ -224,7 +229,8 @@ class TSCPrinter:
             if os.path.exists(port):
                 try:
                     with open(port, 'wb') as f:
-                        f.write(tspl_commands.encode('utf-8'))
+                        # TSC printers expect ASCII encoding, not UTF-8
+                        f.write(tspl_commands.encode('ascii', errors='replace'))
                     return True
                 except Exception:
                     continue
@@ -238,7 +244,8 @@ class TSCPrinter:
             import serial
             port = self.port if self.port.startswith('COM') else 'COM1'
             with serial.Serial(port, 9600, timeout=5) as ser:
-                ser.write(tspl_commands.encode('utf-8'))
+                # TSC printers expect ASCII encoding, not UTF-8
+                ser.write(tspl_commands.encode('ascii', errors='replace'))
                 ser.flush()
             return True
         except ImportError:
@@ -257,7 +264,8 @@ class TSCPrinter:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE
             )
-            _, stderr = process.communicate(input=tspl_commands.encode('utf-8'))
+            # TSC printers expect ASCII encoding, not UTF-8
+            _, stderr = process.communicate(input=tspl_commands.encode('ascii', errors='replace'))
             if process.returncode != 0:
                 self._last_error = f"lp error: {stderr.decode()}"
                 return False
@@ -330,8 +338,9 @@ class TSCPrinter:
         if not filename.endswith('.prn'):
             filename += '.prn'
 
-        with open(filename, 'w') as f:
-            f.write(tspl)
+        # Use binary mode with ASCII encoding to preserve CRLF line endings
+        with open(filename, 'wb') as f:
+            f.write(tspl.encode('ascii', errors='replace'))
 
         return filename
 
