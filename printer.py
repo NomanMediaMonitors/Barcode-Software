@@ -76,53 +76,48 @@ class TSCPrinter:
                             use_qrcode: bool = False) -> str:
         commands = [self._get_tspl_header()]
 
-        # Sticker layout: PORTRAIT orientation (38mm wide x 51mm tall = 304 x 408 dots)
-        margin = 8               # ~1mm margin
-        usable_width = self.sticker_width - (margin * 2)  # ~288 dots
+        # Sticker layout (each sticker: 51mm x 38mm = 408 x 304 dots)
+        margin = 12              # ~1.5mm margin
+        usable_width = self.sticker_width - (margin * 2)  # ~384 dots
 
-        # X offset for right sticker (sticker_width + gap = 304 + 24 = 328)
-        right_offset = self.sticker_width + self.sticker_gap
+        # X offset for right sticker
+        right_offset = self.sticker_width + self.sticker_gap  # 432 dots
 
         # Print identical content on BOTH stickers
         for x_offset in [0, right_offset]:
             x_start = margin + x_offset
 
-            # Product name at top (font 2 = 12 dots/char)
-            product_text = f"Product: {self._truncate_to_fit(product_name, usable_width - 72, '2')}"
+            # Product name at top (font 2 = 12 dots/char, max ~32 chars)
+            product_text = f"Product: {self._truncate_to_fit(product_name, usable_width - 96, '2')}"
             commands.append(self.generate_tspl_text(
                 product_text,
-                x=x_start, y=10, font="2", x_mult=1, y_mult=1
+                x=x_start, y=8, font="2", x_mult=1, y_mult=1
             ))
 
-            # Barcode/QR in middle section
+            # Barcode in middle - centered
             if use_qrcode:
-                # QR code centered horizontally
-                qr_x = x_start + (usable_width - 120) // 2
                 commands.append(self.generate_tspl_qrcode(
-                    barcode_data, x=qr_x, y=50, cell_width=4
+                    barcode_data, x=x_start + 120, y=30, cell_width=4
                 ))
             else:
-                # Barcode rotated 90° to fit portrait sticker vertically
-                # Position: starts near top-left of barcode area, extends downward
-                # height=70 becomes the horizontal width when rotated
-                # narrow=1, wide=1 for compact encoding to fit within sticker height
+                # Barcode with text below (human_readable=2)
                 commands.append(self.generate_tspl_barcode(
-                    barcode_data, x=x_start, y=40, height=70, human_readable=2,
-                    rotation=90, narrow=1, wide=1
+                    barcode_data, x=x_start + 8, y=35, height=50, human_readable=2,
+                    narrow=1, wide=2
                 ))
 
-            # Destination near bottom
-            dest_text = f"Dest: {self._truncate_to_fit(location_name, usable_width - 48, '2')}"
+            # Bottom section - Dest on left
+            dest_text = f"Dest: {self._truncate_to_fit(location_name, 180, '2')}"
             commands.append(self.generate_tspl_text(
                 dest_text,
-                x=x_start, y=355, font="2", x_mult=1, y_mult=1
+                x=x_start, y=245, font="2", x_mult=1, y_mult=1
             ))
 
-            # Packed by at bottom
-            packer_text = f"Packed by: {self._truncate_to_fit(packer_name, usable_width - 80, '1')}"
+            # Packed by on left, below dest
+            packer_text = f"Packed by: {self._truncate_to_fit(packer_name, 150, '1')}"
             commands.append(self.generate_tspl_text(
                 packer_text,
-                x=x_start, y=380, font="1", x_mult=1, y_mult=1
+                x=x_start, y=270, font="1", x_mult=1, y_mult=1
             ))
 
         # Print command
