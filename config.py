@@ -22,7 +22,7 @@ LABEL_GAP = 3
 
 # Printer settings for TSC TE200
 PRINTER_SETTINGS = {
-    "name": "TSC TE200",
+    "name": "Zebra GK888t - EPL",
     "port": "USB",  # Can be COM port like "COM3" or "USB"
     "speed": 4,     # Print speed (1-6)
     "density": 8,   # Print density (0-15)
