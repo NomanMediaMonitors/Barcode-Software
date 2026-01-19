@@ -73,34 +73,34 @@ class TSCPrinter:
 
         # Print identical content on BOTH stickers (left and right)
         for x_offset in [0, right_offset]:
-            # Product name at top
+            # Product name at top (x=30 to account for left margin)
             commands.append(self.generate_tspl_text(
-                f"Product: {product_name[:20]}",
-                x=10 + x_offset, y=10, font="3", x_mult=1, y_mult=1
+                f"Product: {product_name[:18]}",
+                x=30 + x_offset, y=10, font="3", x_mult=1, y_mult=1
             ))
 
             # Barcode in middle
             # Use narrow=1 to keep barcode width within single sticker bounds
             if use_qrcode:
                 commands.append(self.generate_tspl_qrcode(
-                    barcode_data, x=100 + x_offset, y=40, cell_width=3
+                    barcode_data, x=120 + x_offset, y=40, cell_width=3
                 ))
             else:
                 commands.append(self.generate_tspl_barcode(
-                    barcode_data, x=20 + x_offset, y=50, height=60, human_readable=2,
+                    barcode_data, x=40 + x_offset, y=50, height=60, human_readable=2,
                     narrow=1, wide=2
                 ))
 
             # Destination
             commands.append(self.generate_tspl_text(
                 f"Dest: {location_name[:15]}",
-                x=10 + x_offset, y=200, font="2", x_mult=1, y_mult=1
+                x=30 + x_offset, y=200, font="2", x_mult=1, y_mult=1
             ))
 
             # Packer
             commands.append(self.generate_tspl_text(
                 f"Packed: {packer_name[:12]}",
-                x=10 + x_offset, y=230, font="2", x_mult=1, y_mult=1
+                x=30 + x_offset, y=230, font="2", x_mult=1, y_mult=1
             ))
 
         # Print command
