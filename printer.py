@@ -1,14 +1,20 @@
 """
 TSC TE200 Printer Integration Module
 Uses TSPL (TSC Printer Language) commands for direct printing
+
+Supports multiple printing methods:
+1. Windows Spooler (via pywin32)
+2. Direct file copy to printer share
+3. Raw USB printing
+4. Serial port communication
 """
 
 import os
 import sys
 import subprocess
-from typing import Optional, Tuple
-from PIL import Image
 import tempfile
+from typing import Optional, Tuple, List
+from PIL import Image
 
 from config import PRINTER_SETTINGS
 
@@ -16,11 +22,6 @@ from config import PRINTER_SETTINGS
 class TSCPrinter:
     """
     TSC TE200 Printer controller using TSPL commands
-
-    Supports:
-    - Direct USB printing (Windows/Linux)
-    - Network printing
-    - Raw TSPL command sending
     """
 
     def __init__(self, printer_name: str = None, port: str = None):
@@ -28,7 +29,7 @@ class TSCPrinter:
         Initialize printer connection
 
         Args:
-            printer_name: Printer name as installed in OS
+            printer_name: Printer name as installed in OS (will auto-detect if None)
             port: Serial port (COM3, /dev/usb/lp0, etc.) or "USB"
         """
         self.printer_name = printer_name or PRINTER_SETTINGS.get("name", "TSC TE200")
@@ -37,88 +38,53 @@ class TSCPrinter:
         self.height = PRINTER_SETTINGS.get("height", 240)
         self.speed = PRINTER_SETTINGS.get("speed", 4)
         self.density = PRINTER_SETTINGS.get("density", 8)
+        self._detected_printer = None
+        self._last_error = None
+
+    def get_last_error(self) -> Optional[str]:
+        """Get the last error message"""
+        return self._last_error
 
     def _get_tspl_header(self) -> str:
         """Generate TSPL header commands"""
         commands = [
-            f"SIZE {self.width/8} mm, {self.height/8} mm",  # Label size
-            f"GAP 3 mm, 0 mm",  # Gap between labels
-            f"SPEED {self.speed}",  # Print speed
-            f"DENSITY {self.density}",  # Print density
-            "DIRECTION 1,0",  # Print direction
-            "CLS",  # Clear buffer
+            f"SIZE {self.width/8} mm, {self.height/8} mm",
+            "GAP 3 mm, 0 mm",
+            f"SPEED {self.speed}",
+            f"DENSITY {self.density}",
+            "DIRECTION 1,0",
+            "CLS",
         ]
         return "\n".join(commands)
 
     def generate_tspl_barcode(self, barcode_data: str, x: int = 50, y: int = 50,
-                               barcode_type: str = "128",
-                               height: int = 80, human_readable: int = 1,
-                               rotation: int = 0, narrow: int = 2,
-                               wide: int = 2) -> str:
-        """
-        Generate TSPL command for barcode
-
-        Args:
-            barcode_data: Data to encode
-            x, y: Position in dots
-            barcode_type: "128" for Code128, "39" for Code39, "EAN13", etc.
-            height: Barcode height in dots
-            human_readable: 0=no text, 1=align left, 2=center, 3=right
-            rotation: 0, 90, 180, 270 degrees
-            narrow: Narrow bar width
-            wide: Wide bar width
-        """
+                               barcode_type: str = "128", height: int = 80,
+                               human_readable: int = 1, rotation: int = 0,
+                               narrow: int = 2, wide: int = 2) -> str:
+        """Generate TSPL command for barcode"""
         return f'BARCODE {x},{y},"{barcode_type}",{height},{human_readable},{rotation},{narrow},{wide},"{barcode_data}"'
 
     def generate_tspl_qrcode(self, data: str, x: int = 50, y: int = 50,
                               ecc_level: str = "M", cell_width: int = 6,
                               mode: str = "A", rotation: int = 0) -> str:
-        """
-        Generate TSPL command for QR code
-
-        Args:
-            data: Data to encode
-            x, y: Position in dots
-            ecc_level: Error correction (L, M, Q, H)
-            cell_width: Size of each cell (1-10)
-            mode: A=auto, M=manual
-            rotation: 0, 90, 180, 270
-        """
+        """Generate TSPL command for QR code"""
         return f'QRCODE {x},{y},{ecc_level},{cell_width},{mode},{rotation},"{data}"'
 
     def generate_tspl_text(self, text: str, x: int = 10, y: int = 10,
                            font: str = "3", rotation: int = 0,
                            x_mult: int = 1, y_mult: int = 1) -> str:
-        """
-        Generate TSPL command for text
-
-        Args:
-            text: Text to print
-            x, y: Position in dots
-            font: Font selection (1-5 for built-in, or font name)
-            rotation: 0, 90, 180, 270
-            x_mult, y_mult: Multiplication factors for size
-        """
+        """Generate TSPL command for text"""
         return f'TEXT {x},{y},"{font}",{rotation},{x_mult},{y_mult},"{text}"'
 
     def generate_label_tspl(self, barcode_data: str, product_name: str,
                             location_name: str, packer_name: str,
                             use_qrcode: bool = False) -> str:
-        """
-        Generate complete TSPL commands for a label
-
-        Args:
-            barcode_data: Data for barcode
-            product_name: Product name to display
-            location_name: Destination name
-            packer_name: Packer name
-            use_qrcode: Use QR code instead of Code128
-        """
+        """Generate complete TSPL commands for a label"""
         commands = [self._get_tspl_header()]
 
         # Product name at top
         commands.append(self.generate_tspl_text(
-            f"Product: {product_name[:25]}",  # Truncate if too long
+            f"Product: {product_name[:25]}",
             x=10, y=10, font="3", x_mult=1, y_mult=1
         ))
 
@@ -145,238 +111,274 @@ class TSCPrinter:
         ))
 
         # Print command
-        commands.append("PRINT 1,1")  # Print 1 copy
+        commands.append("PRINT 1,1")
 
         return "\n".join(commands)
 
-    def _send_to_printer_windows(self, tspl_commands: str) -> bool:
-        """Send TSPL commands to printer on Windows"""
-        try:
-            import win32print
-            import win32api
-
-            # Get printer handle
-            printer_handle = win32print.OpenPrinter(self.printer_name)
-            try:
-                # Start document
-                win32print.StartDocPrinter(printer_handle, 1, ("Barcode Label", None, "RAW"))
-                try:
-                    win32print.StartPagePrinter(printer_handle)
-                    win32print.WritePrinter(printer_handle, tspl_commands.encode('utf-8'))
-                    win32print.EndPagePrinter(printer_handle)
-                finally:
-                    win32print.EndDocPrinter(printer_handle)
-            finally:
-                win32print.ClosePrinter(printer_handle)
-            return True
-        except ImportError:
-            print("Warning: win32print not available. Install pywin32 for Windows printing.")
-            return False
-        except Exception as e:
-            print(f"Windows printing error: {e}")
-            return False
-
-    def _send_to_printer_linux(self, tspl_commands: str) -> bool:
-        """Send TSPL commands to printer on Linux"""
-        try:
-            # Try using lp command
-            process = subprocess.Popen(
-                ['lp', '-d', self.printer_name, '-o', 'raw'],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
-            stdout, stderr = process.communicate(input=tspl_commands.encode('utf-8'))
-
-            if process.returncode != 0:
-                # Try direct device writing
-                if os.path.exists('/dev/usb/lp0'):
-                    with open('/dev/usb/lp0', 'wb') as printer:
-                        printer.write(tspl_commands.encode('utf-8'))
-                    return True
-                print(f"Linux printing error: {stderr.decode()}")
-                return False
-            return True
-        except Exception as e:
-            print(f"Linux printing error: {e}")
-            return False
-
-    def _send_to_serial(self, tspl_commands: str) -> bool:
-        """Send TSPL commands via serial port"""
-        try:
-            import serial
-
-            with serial.Serial(self.port, 9600, timeout=5) as ser:
-                ser.write(tspl_commands.encode('utf-8'))
-                ser.flush()
-            return True
-        except ImportError:
-            print("Warning: pyserial not available. Install with: pip install pyserial")
-            return False
-        except Exception as e:
-            print(f"Serial printing error: {e}")
-            return False
-
-    def print_label(self, barcode_data: str, product_name: str,
-                    location_name: str, packer_name: str,
-                    use_qrcode: bool = False, copies: int = 1) -> bool:
-        """
-        Print a label with barcode
-
-        Args:
-            barcode_data: Data for barcode
-            product_name: Product name
-            location_name: Destination
-            packer_name: Packer name
-            use_qrcode: Use QR code instead of Code128
-            copies: Number of copies
-
-        Returns:
-            True if successful
-        """
-        # Generate TSPL commands
-        tspl = self.generate_label_tspl(
-            barcode_data, product_name, location_name, packer_name, use_qrcode
-        )
-
-        # Modify print command for copies
-        if copies > 1:
-            tspl = tspl.replace("PRINT 1,1", f"PRINT {copies},1")
-
-        # Send to printer based on platform
-        if sys.platform == 'win32':
-            return self._send_to_printer_windows(tspl)
-        elif self.port.startswith('COM') or self.port.startswith('/dev/tty'):
-            return self._send_to_serial(tspl)
-        else:
-            return self._send_to_printer_linux(tspl)
-
-    def print_image(self, image: Image.Image, x: int = 0, y: int = 0) -> bool:
-        """
-        Print a PIL Image directly to the printer
-
-        Args:
-            image: PIL Image to print
-            x, y: Position offset
-        """
-        # Convert to monochrome
-        if image.mode != '1':
-            image = image.convert('1')
-
-        # Generate TSPL BITMAP command
-        width = image.width
-        height = image.height
-        width_bytes = (width + 7) // 8
-
-        # Get bitmap data
-        bitmap_data = []
-        for row in range(height):
-            row_data = []
-            for col_byte in range(width_bytes):
-                byte = 0
-                for bit in range(8):
-                    col = col_byte * 8 + bit
-                    if col < width:
-                        pixel = image.getpixel((col, row))
-                        if pixel == 0:  # Black pixel
-                            byte |= (1 << (7 - bit))
-                row_data.append(byte)
-            bitmap_data.extend(row_data)
-
-        # Generate TSPL commands
-        commands = [
-            self._get_tspl_header(),
-            f"BITMAP {x},{y},{width_bytes},{height},1,",
-        ]
-
-        tspl = "\n".join(commands)
-        tspl_bytes = tspl.encode('utf-8') + bytes(bitmap_data) + b"\nPRINT 1,1\n"
-
-        # Save to temp file and print
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.bin') as f:
-            f.write(tspl_bytes)
-            temp_path = f.name
-
-        try:
-            if sys.platform == 'win32':
-                return self._send_to_printer_windows(tspl_bytes.decode('latin-1'))
-            else:
-                return self._send_to_printer_linux(tspl_bytes.decode('latin-1'))
-        finally:
-            os.unlink(temp_path)
-
-    def save_tspl_file(self, barcode_data: str, product_name: str,
-                       location_name: str, packer_name: str,
-                       filename: str, use_qrcode: bool = False) -> str:
-        """
-        Save TSPL commands to file for manual printing
-
-        Useful for testing or printing via other methods
-        """
-        tspl = self.generate_label_tspl(
-            barcode_data, product_name, location_name, packer_name, use_qrcode
-        )
-
-        if not filename.endswith('.tspl'):
-            filename += '.tspl'
-
-        with open(filename, 'w') as f:
-            f.write(tspl)
-
-        return filename
-
-    def test_print(self) -> bool:
-        """Print a test label"""
-        return self.print_label(
-            barcode_data="TEST-LABEL-001",
-            product_name="Test Product",
-            location_name="Test Location",
-            packer_name="Test Packer"
-        )
-
     @staticmethod
-    def list_printers() -> list:
+    def list_printers() -> List[str]:
         """List available printers on the system"""
         printers = []
 
         if sys.platform == 'win32':
             try:
                 import win32print
-                printers = [p[2] for p in win32print.EnumPrinters(2)]
+                printers = [p[2] for p in win32print.EnumPrinters(win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS)]
             except ImportError:
-                pass
+                # Fallback: use wmic command
+                try:
+                    result = subprocess.run(
+                        ['wmic', 'printer', 'get', 'name'],
+                        capture_output=True, text=True, shell=True
+                    )
+                    for line in result.stdout.split('\n'):
+                        line = line.strip()
+                        if line and line != 'Name':
+                            printers.append(line)
+                except Exception:
+                    pass
         else:
             try:
                 result = subprocess.run(
-                    ['lpstat', '-p'],
-                    capture_output=True, text=True
+                    ['lpstat', '-p'], capture_output=True, text=True
                 )
                 for line in result.stdout.split('\n'):
                     if line.startswith('printer '):
-                        name = line.split()[1]
-                        printers.append(name)
+                        printers.append(line.split()[1])
             except Exception:
                 pass
 
         return printers
 
+    def find_tsc_printer(self) -> Optional[str]:
+        """Auto-detect TSC printer from available printers"""
+        if self._detected_printer:
+            return self._detected_printer
+
+        printers = self.list_printers()
+        tsc_keywords = ['TSC', 'TE200', 'TE-200', 'TE 200', 'TTP', 'TDP']
+
+        for printer in printers:
+            printer_upper = printer.upper()
+            for keyword in tsc_keywords:
+                if keyword in printer_upper:
+                    self._detected_printer = printer
+                    return printer
+
+        # If no TSC printer found, return configured name
+        return self.printer_name
+
+    def _send_via_win32print(self, tspl_commands: str, printer_name: str) -> bool:
+        """Send using Windows print spooler (pywin32)"""
+        try:
+            import win32print
+
+            handle = win32print.OpenPrinter(printer_name)
+            try:
+                win32print.StartDocPrinter(handle, 1, ("Barcode Label", None, "RAW"))
+                try:
+                    win32print.StartPagePrinter(handle)
+                    win32print.WritePrinter(handle, tspl_commands.encode('utf-8'))
+                    win32print.EndPagePrinter(handle)
+                finally:
+                    win32print.EndDocPrinter(handle)
+                return True
+            finally:
+                win32print.ClosePrinter(handle)
+        except ImportError:
+            self._last_error = "pywin32 not installed. Run: pip install pywin32"
+            return False
+        except Exception as e:
+            self._last_error = f"win32print error: {e}"
+            return False
+
+    def _send_via_file_copy(self, tspl_commands: str, printer_name: str) -> bool:
+        """Send by copying file to printer (Windows)"""
+        try:
+            # Create temp file with TSPL commands
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.prn', delete=False) as f:
+                f.write(tspl_commands)
+                temp_file = f.name
+
+            try:
+                # Try copying to printer share
+                # Format: copy /b file.prn "\\%computername%\printername"
+                computer = os.environ.get('COMPUTERNAME', 'localhost')
+                printer_path = f"\\\\{computer}\\{printer_name}"
+
+                result = subprocess.run(
+                    f'copy /b "{temp_file}" "{printer_path}"',
+                    shell=True, capture_output=True, text=True
+                )
+
+                if result.returncode == 0:
+                    return True
+                else:
+                    self._last_error = f"File copy failed: {result.stderr}"
+                    return False
+            finally:
+                os.unlink(temp_file)
+        except Exception as e:
+            self._last_error = f"File copy error: {e}"
+            return False
+
+    def _send_via_usb_port(self, tspl_commands: str) -> bool:
+        """Send directly to USB port (requires knowing the port)"""
+        usb_ports = ['USB001', 'USB002', 'USB003']
+
+        for port in usb_ports:
+            try:
+                port_path = f"\\\\.\\{port}"
+                with open(port_path, 'wb') as f:
+                    f.write(tspl_commands.encode('utf-8'))
+                return True
+            except Exception:
+                continue
+
+        # Try Linux USB device
+        linux_usb = ['/dev/usb/lp0', '/dev/usb/lp1', '/dev/lp0']
+        for port in linux_usb:
+            if os.path.exists(port):
+                try:
+                    with open(port, 'wb') as f:
+                        f.write(tspl_commands.encode('utf-8'))
+                    return True
+                except Exception:
+                    continue
+
+        self._last_error = "No USB printer port found"
+        return False
+
+    def _send_via_serial(self, tspl_commands: str) -> bool:
+        """Send via serial port"""
+        try:
+            import serial
+            port = self.port if self.port.startswith('COM') else 'COM1'
+            with serial.Serial(port, 9600, timeout=5) as ser:
+                ser.write(tspl_commands.encode('utf-8'))
+                ser.flush()
+            return True
+        except ImportError:
+            self._last_error = "pyserial not installed. Run: pip install pyserial"
+            return False
+        except Exception as e:
+            self._last_error = f"Serial port error: {e}"
+            return False
+
+    def _send_via_lp(self, tspl_commands: str, printer_name: str) -> bool:
+        """Send via lp command (Linux/Mac)"""
+        try:
+            process = subprocess.Popen(
+                ['lp', '-d', printer_name, '-o', 'raw'],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            _, stderr = process.communicate(input=tspl_commands.encode('utf-8'))
+            if process.returncode != 0:
+                self._last_error = f"lp error: {stderr.decode()}"
+                return False
+            return True
+        except Exception as e:
+            self._last_error = f"lp command error: {e}"
+            return False
+
+    def print_label(self, barcode_data: str, product_name: str,
+                    location_name: str, packer_name: str,
+                    use_qrcode: bool = False, copies: int = 1) -> Tuple[bool, str]:
+        """
+        Print a label with barcode
+
+        Returns:
+            Tuple of (success: bool, message: str)
+        """
+        self._last_error = None
+
+        # Generate TSPL commands
+        tspl = self.generate_label_tspl(
+            barcode_data, product_name, location_name, packer_name, use_qrcode
+        )
+
+        # Adjust for copies
+        if copies > 1:
+            tspl = tspl.replace("PRINT 1,1", f"PRINT {copies},1")
+
+        # Find printer
+        printer_name = self.find_tsc_printer()
+
+        # Try different methods in order of preference
+        methods = []
+
+        if sys.platform == 'win32':
+            methods = [
+                ('Windows Spooler', lambda: self._send_via_win32print(tspl, printer_name)),
+                ('File Copy', lambda: self._send_via_file_copy(tspl, printer_name)),
+                ('Direct USB', lambda: self._send_via_usb_port(tspl)),
+                ('Serial Port', lambda: self._send_via_serial(tspl)),
+            ]
+        else:
+            methods = [
+                ('LP Command', lambda: self._send_via_lp(tspl, printer_name)),
+                ('Direct USB', lambda: self._send_via_usb_port(tspl)),
+                ('Serial Port', lambda: self._send_via_serial(tspl)),
+            ]
+
+        errors = []
+        for method_name, method_func in methods:
+            try:
+                if method_func():
+                    return True, f"Printed via {method_name} to {printer_name}"
+                if self._last_error:
+                    errors.append(f"{method_name}: {self._last_error}")
+            except Exception as e:
+                errors.append(f"{method_name}: {str(e)}")
+
+        error_msg = "All print methods failed:\n" + "\n".join(errors)
+        return False, error_msg
+
+    def save_tspl_file(self, barcode_data: str, product_name: str,
+                       location_name: str, packer_name: str,
+                       filename: str, use_qrcode: bool = False) -> str:
+        """Save TSPL commands to file for manual printing"""
+        tspl = self.generate_label_tspl(
+            barcode_data, product_name, location_name, packer_name, use_qrcode
+        )
+
+        if not filename.endswith('.prn'):
+            filename += '.prn'
+
+        with open(filename, 'w') as f:
+            f.write(tspl)
+
+        return filename
+
+    def test_connection(self) -> Tuple[bool, str]:
+        """Test printer connection"""
+        printer_name = self.find_tsc_printer()
+        printers = self.list_printers()
+
+        if not printers:
+            return False, "No printers found on system"
+
+        if printer_name in printers:
+            return True, f"Printer '{printer_name}' found and available"
+
+        # Check if any TSC printer exists
+        tsc_found = [p for p in printers if 'TSC' in p.upper()]
+        if tsc_found:
+            return True, f"TSC printer found: {tsc_found[0]}"
+
+        return False, f"Printer '{printer_name}' not found. Available: {', '.join(printers)}"
+
 
 def print_barcode_label(barcode_data: str, product_name: str,
                         location_name: str, packer_name: str,
-                        copies: int = 1, use_qrcode: bool = False) -> bool:
+                        copies: int = 1, use_qrcode: bool = False) -> Tuple[bool, str]:
     """
     Convenience function to print a barcode label
 
-    Args:
-        barcode_data: Data to encode in barcode
-        product_name: Product name to display
-        location_name: Destination location
-        packer_name: Name of packer
-        copies: Number of copies to print
-        use_qrcode: Use QR code instead of Code128
-
     Returns:
-        True if printing was successful
+        Tuple of (success: bool, message: str)
     """
     printer = TSCPrinter()
     return printer.print_label(
@@ -386,18 +388,29 @@ def print_barcode_label(barcode_data: str, product_name: str,
 
 
 if __name__ == "__main__":
-    # Test printer functionality
     printer = TSCPrinter()
 
-    # List available printers
-    print("Available printers:", printer.list_printers())
+    print("=== TSC TE200 Printer Test ===\n")
 
-    # Generate sample TSPL file
+    # List printers
+    printers = printer.list_printers()
+    print(f"Available printers: {printers if printers else 'None found'}")
+
+    # Find TSC printer
+    tsc = printer.find_tsc_printer()
+    print(f"Detected TSC printer: {tsc}")
+
+    # Test connection
+    success, msg = printer.test_connection()
+    print(f"Connection test: {msg}")
+
+    # Save sample file
     filepath = printer.save_tspl_file(
         barcode_data="LOC01-BAG01-PKR01-20240115",
         product_name="Leather Bag",
         location_name="NYC Warehouse",
         packer_name="John Smith",
-        filename="sample_label.tspl"
+        filename="sample_label"
     )
-    print(f"Sample TSPL saved to: {filepath}")
+    print(f"\nSample TSPL saved to: {filepath}")
+    print("You can manually print this file by copying it to your printer.")

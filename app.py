@@ -250,7 +250,7 @@ class BarcodeApp:
         # Try to print
         use_qrcode = self.barcode_type_var.get() == "qrcode"
 
-        success = self.printer.print_label(
+        success, message = self.printer.print_label(
             self.current_barcode_data,
             self.current_product['name'],
             self.current_location['name'],
@@ -268,13 +268,14 @@ class BarcodeApp:
                 self.current_packer['id'],
                 quantity
             )
-            messagebox.showinfo("Success", f"Printed {quantity} label(s)")
+            messagebox.showinfo("Success", f"Printed {quantity} label(s)\n\n{message}")
             self._refresh_history()
         else:
-            # Offer to save TSPL file instead
+            # Show error and offer to save TSPL file instead
             if messagebox.askyesno(
                 "Print Failed",
-                "Could not send to printer. Save as TSPL file instead?"
+                f"{message}\n\nWould you like to save as a .prn file instead?\n"
+                "(You can print it manually by copying to your printer)"
             ):
                 self._save_tspl_file()
 
@@ -296,13 +297,13 @@ class BarcodeApp:
     def _save_tspl_file(self):
         """Save TSPL commands to file"""
         filename = filedialog.asksaveasfilename(
-            defaultextension=".tspl",
-            filetypes=[("TSPL File", "*.tspl"), ("All files", "*.*")]
+            defaultextension=".prn",
+            filetypes=[("Printer File", "*.prn"), ("TSPL File", "*.tspl"), ("All files", "*.*")]
         )
 
         if filename:
             use_qrcode = self.barcode_type_var.get() == "qrcode"
-            self.printer.save_tspl_file(
+            saved_path = self.printer.save_tspl_file(
                 self.current_barcode_data,
                 self.current_product['name'],
                 self.current_location['name'],
@@ -310,7 +311,12 @@ class BarcodeApp:
                 filename,
                 use_qrcode
             )
-            messagebox.showinfo("Success", f"TSPL file saved to {filename}")
+            messagebox.showinfo(
+                "Success",
+                f"File saved to:\n{saved_path}\n\n"
+                "To print manually, open Command Prompt and run:\n"
+                f'copy /b "{saved_path}" "\\\\%COMPUTERNAME%\\YourPrinterName"'
+            )
 
     def _validate_selection(self):
         """Validate that all required selections are made"""
@@ -770,27 +776,59 @@ class BarcodeApp:
         """Show printer setup dialog"""
         dialog = tk.Toplevel(self.root)
         dialog.title("Printer Setup")
-        dialog.geometry("400x300")
+        dialog.geometry("500x400")
         dialog.transient(self.root)
 
+        # Available printers
         ttk.Label(dialog, text="Available Printers:", style="Header.TLabel").pack(pady=10)
 
         printers = TSCPrinter.list_printers()
         if printers:
             for p in printers:
-                ttk.Label(dialog, text=f"  - {p}").pack()
+                # Highlight TSC printers
+                if 'TSC' in p.upper():
+                    ttk.Label(dialog, text=f"  * {p} (TSC Detected)", foreground="green").pack()
+                else:
+                    ttk.Label(dialog, text=f"  - {p}").pack()
         else:
-            ttk.Label(dialog, text="  No printers found").pack()
+            ttk.Label(dialog, text="  No printers found", foreground="red").pack()
 
-        ttk.Label(dialog, text="\nCurrent Settings:", style="Header.TLabel").pack(pady=10)
-        ttk.Label(dialog, text=f"  Printer: {self.printer.printer_name}").pack()
+        # Detected TSC printer
+        detected = self.printer.find_tsc_printer()
+        ttk.Label(dialog, text=f"\nDetected TSC Printer: {detected}", style="Header.TLabel").pack(pady=5)
+
+        # Current settings
+        ttk.Label(dialog, text="\nCurrent Settings:", style="Header.TLabel").pack(pady=5)
+        ttk.Label(dialog, text=f"  Configured Name: {self.printer.printer_name}").pack()
         ttk.Label(dialog, text=f"  Port: {self.printer.port}").pack()
         ttk.Label(dialog, text=f"  Label Size: {self.printer.width/8}mm x {self.printer.height/8}mm").pack()
 
+        # Test connection
+        def test_connection():
+            success, msg = self.printer.test_connection()
+            if success:
+                messagebox.showinfo("Connection Test", msg)
+            else:
+                messagebox.showerror("Connection Test", msg)
+
+        def test_print():
+            success, msg = self.printer.print_label(
+                "TEST-001", "Test Product", "Test Location", "Test Packer"
+            )
+            if success:
+                messagebox.showinfo("Test Print", f"Test label sent!\n\n{msg}")
+            else:
+                messagebox.showerror("Test Print Failed", msg)
+
+        btn_frame = ttk.Frame(dialog)
+        btn_frame.pack(pady=15)
+        ttk.Button(btn_frame, text="Test Connection", command=test_connection).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Print Test Label", command=test_print).pack(side=tk.LEFT, padx=5)
+
         ttk.Label(
-            dialog, text="\nEdit config.py to change settings",
+            dialog, text="\nEdit config.py to change printer settings",
             font=("Helvetica", 9, "italic")
-        ).pack(pady=20)
+        ).pack(pady=10)
 
         ttk.Button(dialog, text="Close", command=dialog.destroy).pack(pady=10)
 
