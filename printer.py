@@ -102,13 +102,11 @@ class TSCPrinter:
                     barcode_data, x=qr_x, y=50, cell_width=4
                 ))
             else:
-                # Barcode rotated 90° to fit portrait sticker vertically
-                # Position: starts near top-left of barcode area, extends downward
-                # height=70 becomes the horizontal width when rotated
-                # narrow=1, wide=1 for compact encoding to fit within sticker height
+                # Barcode in landscape orientation (horizontal)
+                # Centered in middle section of sticker
                 commands.append(self.generate_tspl_barcode(
-                    barcode_data, x=x_start, y=40, height=70, human_readable=2,
-                    rotation=90, narrow=1, wide=1
+                    barcode_data, x=x_start, y=80, height=60, human_readable=2,
+                    rotation=0, narrow=1, wide=2
                 ))
 
             # Destination near bottom
