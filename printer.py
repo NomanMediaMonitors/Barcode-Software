@@ -24,9 +24,12 @@ class TSCPrinter:
         return self._last_error
 
     def _get_tspl_header(self) -> str:
+        # TSPL syntax: no space before comma, integers only (not floats)
+        width_mm = self.width // 8
+        height_mm = self.height // 8
         commands = [
-            f"SIZE {self.width/8} mm, {self.height/8} mm",
-            "GAP 3 mm, 0 mm",
+            f"SIZE {width_mm} mm,{height_mm} mm",
+            "GAP 3 mm,0 mm",
             f"SPEED {self.speed}",
             f"DENSITY {self.density}",
             "DIRECTION 1,0",
@@ -87,8 +90,8 @@ class TSCPrinter:
         # Print command
         commands.append("PRINT 1,1")
 
-        # TSPL requires CRLF line endings
-        return "\r\n".join(commands)
+        # TSPL requires CRLF line endings, plus trailing CRLF to flush buffer
+        return "\r\n".join(commands) + "\r\n"
 
     @staticmethod
     def list_printers() -> List[str]:
