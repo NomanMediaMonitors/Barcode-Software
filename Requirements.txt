@@ -1,0 +1,3 @@
+I have 2 types of bags and a wallet as the products what i want now is to generate the bar codes for them but in the bar code i want to embed the destination product code and the person who is packing the order how to acheive this I want some sort of software my barcode printer is TSC TE200.
+I HAVE 8 LOCATIONS
+3 PRODUCTS
