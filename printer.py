@@ -77,7 +77,7 @@ class TSCPrinter:
         commands = [self._get_tspl_header()]
 
         # Sticker layout (each sticker: 51mm x 38mm = 408 x 304 dots)
-        margin = 45              # ~5.6mm left margin (moved further right)
+        margin = 50              # ~5.6mm left margin (moved further right)
         top_margin = 35          # ~4.4mm top margin
         usable_width = self.sticker_width - (margin * 2)  # ~318 dots
 
@@ -89,7 +89,7 @@ class TSCPrinter:
             x_start = margin + x_offset
 
             # Product name at top (font 2 = 12 dots/char, max ~32 chars)
-            product_text = f"Product: {self._truncate_to_fit(product_name, usable_width - 96, '2')}"
+            product_text = self._truncate_to_fit(product_name, usable_width, '2')
             commands.append(self.generate_tspl_text(
                 product_text,
                 x=x_start, y=top_margin + 8, font="2", x_mult=1, y_mult=1
