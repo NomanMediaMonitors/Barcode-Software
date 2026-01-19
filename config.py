@@ -14,6 +14,7 @@ DATABASE_CONFIG = {
 # Barcode settings
 BARCODE_TYPE = "code128"  # Options: code128, code39, ean13, qrcode
 BARCODE_PREFIX = "PKG"    # Prefix for generated codes
+CARTON_PREFIX = "CTN"     # Prefix for carton barcodes
 
 # Label settings (in mm for TSC TE200)
 # 2-column sticker layout: full page 4.25" wide, each sticker 2" x 1.5"

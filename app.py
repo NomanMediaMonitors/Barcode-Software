@@ -64,10 +64,15 @@ class BarcodeApp:
 
         # Create tabs
         self._create_generate_tab()
+        self._create_carton_packing_tab()
+        self._create_carton_lookup_tab()
         self._create_products_tab()
         self._create_locations_tab()
         self._create_packers_tab()
         self._create_history_tab()
+
+        # Current carton being packed
+        self.current_carton = None
 
     # ==================== GENERATE TAB ====================
 
@@ -342,6 +347,513 @@ class BarcodeApp:
                 if p['code'] == code:
                     return dict(p)
         return None
+
+    # ==================== CARTON PACKING TAB ====================
+
+    def _create_carton_packing_tab(self):
+        """Create carton packing tab"""
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Carton Packing")
+
+        # Main container with two panels
+        main_paned = ttk.PanedWindow(tab, orient=tk.HORIZONTAL)
+        main_paned.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        # Left panel - Carton Control
+        left_frame = ttk.Frame(main_paned)
+        main_paned.add(left_frame, weight=1)
+
+        # Create new carton section
+        create_frame = ttk.LabelFrame(left_frame, text="Create New Carton", padding=10)
+        create_frame.pack(fill=tk.X, padx=5, pady=5)
+
+        ttk.Label(create_frame, text="Destination:").grid(row=0, column=0, sticky=tk.W, pady=2)
+        self.carton_location_var = tk.StringVar()
+        self.carton_location_combo = ttk.Combobox(
+            create_frame, textvariable=self.carton_location_var, state="readonly", width=30
+        )
+        self.carton_location_combo.grid(row=0, column=1, sticky=tk.W, pady=2, padx=5)
+
+        ttk.Label(create_frame, text="Packer:").grid(row=1, column=0, sticky=tk.W, pady=2)
+        self.carton_packer_var = tk.StringVar()
+        self.carton_packer_combo = ttk.Combobox(
+            create_frame, textvariable=self.carton_packer_var, state="readonly", width=30
+        )
+        self.carton_packer_combo.grid(row=1, column=1, sticky=tk.W, pady=2, padx=5)
+
+        ttk.Label(create_frame, text="Notes:").grid(row=2, column=0, sticky=tk.W, pady=2)
+        self.carton_notes_entry = ttk.Entry(create_frame, width=33)
+        self.carton_notes_entry.grid(row=2, column=1, sticky=tk.W, pady=2, padx=5)
+
+        ttk.Button(create_frame, text="Create Carton", command=self._create_carton).grid(
+            row=3, column=0, columnspan=2, pady=10
+        )
+
+        # Current carton info
+        current_frame = ttk.LabelFrame(left_frame, text="Current Carton", padding=10)
+        current_frame.pack(fill=tk.X, padx=5, pady=5)
+
+        self.current_carton_label = ttk.Label(
+            current_frame, text="No carton active", font=("Helvetica", 11, "bold")
+        )
+        self.current_carton_label.pack(pady=5)
+
+        self.current_carton_info = ttk.Label(current_frame, text="")
+        self.current_carton_info.pack(pady=2)
+
+        self.current_carton_count = ttk.Label(current_frame, text="Items: 0")
+        self.current_carton_count.pack(pady=2)
+
+        carton_btn_frame = ttk.Frame(current_frame)
+        carton_btn_frame.pack(pady=10)
+
+        ttk.Button(carton_btn_frame, text="Print Carton Label", command=self._print_carton_label).pack(
+            side=tk.LEFT, padx=5
+        )
+        ttk.Button(carton_btn_frame, text="Close Carton", command=self._close_carton).pack(
+            side=tk.LEFT, padx=5
+        )
+
+        # Add product section
+        add_frame = ttk.LabelFrame(left_frame, text="Add Product to Carton", padding=10)
+        add_frame.pack(fill=tk.X, padx=5, pady=5)
+
+        ttk.Label(add_frame, text="Product:").grid(row=0, column=0, sticky=tk.W, pady=2)
+        self.carton_product_var = tk.StringVar()
+        self.carton_product_combo = ttk.Combobox(
+            add_frame, textvariable=self.carton_product_var, state="readonly", width=30
+        )
+        self.carton_product_combo.grid(row=0, column=1, sticky=tk.W, pady=2, padx=5)
+
+        ttk.Label(add_frame, text="Quantity:").grid(row=1, column=0, sticky=tk.W, pady=2)
+        self.carton_qty_var = tk.StringVar(value="1")
+        ttk.Spinbox(add_frame, from_=1, to=100, textvariable=self.carton_qty_var, width=10).grid(
+            row=1, column=1, sticky=tk.W, pady=2, padx=5
+        )
+
+        ttk.Label(add_frame, text="Product Barcode:").grid(row=2, column=0, sticky=tk.W, pady=2)
+        self.product_barcode_entry = ttk.Entry(add_frame, width=33)
+        self.product_barcode_entry.grid(row=2, column=1, sticky=tk.W, pady=2, padx=5)
+        self.product_barcode_entry.bind('<Return>', lambda e: self._add_product_to_carton())
+
+        ttk.Button(add_frame, text="Add to Carton", command=self._add_product_to_carton).grid(
+            row=3, column=0, columnspan=2, pady=10
+        )
+
+        # Right panel - Carton Contents
+        right_frame = ttk.Frame(main_paned)
+        main_paned.add(right_frame, weight=2)
+
+        contents_frame = ttk.LabelFrame(right_frame, text="Carton Contents", padding=10)
+        contents_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        columns = ("product_code", "product_name", "quantity", "barcode", "added")
+        self.contents_tree = ttk.Treeview(contents_frame, columns=columns, show="headings")
+
+        self.contents_tree.heading("product_code", text="Code")
+        self.contents_tree.heading("product_name", text="Product")
+        self.contents_tree.heading("quantity", text="Qty")
+        self.contents_tree.heading("barcode", text="Product Barcode")
+        self.contents_tree.heading("added", text="Added")
+
+        self.contents_tree.column("product_code", width=80)
+        self.contents_tree.column("product_name", width=150)
+        self.contents_tree.column("quantity", width=50)
+        self.contents_tree.column("barcode", width=150)
+        self.contents_tree.column("added", width=130)
+
+        scrollbar = ttk.Scrollbar(contents_frame, orient=tk.VERTICAL, command=self.contents_tree.yview)
+        self.contents_tree.configure(yscrollcommand=scrollbar.set)
+
+        self.contents_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        ttk.Button(right_frame, text="Remove Selected", command=self._remove_from_carton).pack(pady=5)
+
+        # Open cartons list
+        open_frame = ttk.LabelFrame(right_frame, text="Open Cartons", padding=10)
+        open_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        columns = ("barcode", "location", "packer", "items", "created")
+        self.open_cartons_tree = ttk.Treeview(open_frame, columns=columns, show="headings", height=5)
+
+        self.open_cartons_tree.heading("barcode", text="Carton Barcode")
+        self.open_cartons_tree.heading("location", text="Destination")
+        self.open_cartons_tree.heading("packer", text="Packer")
+        self.open_cartons_tree.heading("items", text="Items")
+        self.open_cartons_tree.heading("created", text="Created")
+
+        self.open_cartons_tree.column("barcode", width=180)
+        self.open_cartons_tree.column("location", width=120)
+        self.open_cartons_tree.column("packer", width=100)
+        self.open_cartons_tree.column("items", width=50)
+        self.open_cartons_tree.column("created", width=130)
+
+        self.open_cartons_tree.pack(fill=tk.BOTH, expand=True)
+        self.open_cartons_tree.bind('<Double-1>', self._select_open_carton)
+
+        ttk.Button(open_frame, text="Select Carton", command=self._select_open_carton).pack(pady=5)
+
+    def _create_carton(self):
+        """Create a new carton"""
+        if not self.carton_location_var.get():
+            messagebox.showwarning("Warning", "Please select a destination")
+            return
+        if not self.carton_packer_var.get():
+            messagebox.showwarning("Warning", "Please select a packer")
+            return
+
+        # Get location and packer IDs
+        location = self._get_selected_carton_location()
+        packer = self._get_selected_carton_packer()
+
+        if not location or not packer:
+            messagebox.showerror("Error", "Could not get location or packer details")
+            return
+
+        notes = self.carton_notes_entry.get().strip()
+
+        try:
+            carton_id, barcode = db.create_carton(location['id'], packer['id'], notes)
+            self.current_carton = db.get_carton_by_id(carton_id)
+            self._update_current_carton_display()
+            self._refresh_open_cartons()
+            self.carton_notes_entry.delete(0, tk.END)
+            messagebox.showinfo("Success", f"Carton created!\n\nBarcode: {barcode}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not create carton: {e}")
+
+    def _update_current_carton_display(self):
+        """Update the current carton display"""
+        if self.current_carton:
+            self.current_carton_label.config(
+                text=f"Barcode: {self.current_carton['barcode']}"
+            )
+            self.current_carton_info.config(
+                text=f"Destination: {self.current_carton['location_name']} | "
+                     f"Packer: {self.current_carton['packer_name']}"
+            )
+            # Get item count
+            contents = db.get_carton_contents(self.current_carton['id'])
+            total_qty = sum(c['quantity'] for c in contents)
+            self.current_carton_count.config(text=f"Items: {len(contents)} entries, {total_qty} total quantity")
+            self._refresh_carton_contents()
+        else:
+            self.current_carton_label.config(text="No carton active")
+            self.current_carton_info.config(text="")
+            self.current_carton_count.config(text="Items: 0")
+            self.contents_tree.delete(*self.contents_tree.get_children())
+
+    def _add_product_to_carton(self):
+        """Add a product to the current carton"""
+        if not self.current_carton:
+            messagebox.showwarning("Warning", "Please create or select a carton first")
+            return
+
+        if self.current_carton['status'] == 'closed':
+            messagebox.showwarning("Warning", "This carton is closed. Cannot add products.")
+            return
+
+        if not self.carton_product_var.get():
+            messagebox.showwarning("Warning", "Please select a product")
+            return
+
+        product = self._get_selected_carton_product()
+        if not product:
+            messagebox.showerror("Error", "Could not get product details")
+            return
+
+        quantity = int(self.carton_qty_var.get())
+        product_barcode = self.product_barcode_entry.get().strip() or None
+
+        try:
+            db.add_product_to_carton(
+                self.current_carton['id'],
+                product['id'],
+                quantity,
+                product_barcode
+            )
+            self._update_current_carton_display()
+            self.product_barcode_entry.delete(0, tk.END)
+            self._refresh_open_cartons()
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not add product: {e}")
+
+    def _remove_from_carton(self):
+        """Remove selected item from carton"""
+        if not self.current_carton:
+            return
+
+        selection = self.contents_tree.selection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select an item to remove")
+            return
+
+        if messagebox.askyesno("Confirm", "Remove this item from the carton?"):
+            item = self.contents_tree.item(selection[0])
+            content_id = item['tags'][0] if item['tags'] else None
+            if content_id:
+                db.remove_product_from_carton(int(content_id))
+                self._update_current_carton_display()
+                self._refresh_open_cartons()
+
+    def _refresh_carton_contents(self):
+        """Refresh carton contents display"""
+        self.contents_tree.delete(*self.contents_tree.get_children())
+        if self.current_carton:
+            contents = db.get_carton_contents(self.current_carton['id'])
+            for c in contents:
+                self.contents_tree.insert("", tk.END, values=(
+                    c['product_code'],
+                    c['product_name'],
+                    c['quantity'],
+                    c['product_barcode'] or "",
+                    c['added_at']
+                ), tags=(str(c['id']),))
+
+    def _print_carton_label(self):
+        """Print label for current carton"""
+        if not self.current_carton:
+            messagebox.showwarning("Warning", "No carton selected")
+            return
+
+        # Get carton summary
+        summary = db.get_carton_summary(self.current_carton['id'])
+        summary_text = ", ".join([f"{s['product_code']}x{s['total_quantity']}" for s in summary])
+
+        # Generate carton label
+        label_img = self.barcode_gen.create_label(
+            self.current_carton['barcode'],
+            f"CARTON: {summary_text[:30]}",
+            self.current_carton['location_name'],
+            self.current_carton['packer_name'],
+            "qrcode"  # Use QR for cartons for more data
+        )
+
+        # Try to print
+        success, message = self.printer.print_label(
+            self.current_carton['barcode'],
+            f"CARTON",
+            self.current_carton['location_name'],
+            self.current_carton['packer_name'],
+            True,  # Use QR code
+            1
+        )
+
+        if success:
+            messagebox.showinfo("Success", f"Carton label printed!\n\n{message}")
+        else:
+            messagebox.showerror("Print Failed", message)
+
+    def _close_carton(self):
+        """Close the current carton"""
+        if not self.current_carton:
+            messagebox.showwarning("Warning", "No carton selected")
+            return
+
+        contents = db.get_carton_contents(self.current_carton['id'])
+        if not contents:
+            if not messagebox.askyesno("Warning", "This carton is empty. Close anyway?"):
+                return
+
+        if messagebox.askyesno("Confirm", f"Close carton {self.current_carton['barcode']}?\n\n"
+                                          "This will seal the carton."):
+            db.close_carton(self.current_carton['id'])
+            messagebox.showinfo("Success", "Carton closed!")
+            self.current_carton = None
+            self._update_current_carton_display()
+            self._refresh_open_cartons()
+
+    def _refresh_open_cartons(self):
+        """Refresh list of open cartons"""
+        self.open_cartons_tree.delete(*self.open_cartons_tree.get_children())
+        cartons = db.get_open_cartons()
+        for c in cartons:
+            self.open_cartons_tree.insert("", tk.END, values=(
+                c['barcode'],
+                c['location_name'] or "",
+                c['packer_name'] or "",
+                c['total_quantity'] or 0,
+                c['created_at']
+            ), tags=(str(c['id']),))
+
+    def _select_open_carton(self, event=None):
+        """Select an open carton to work with"""
+        selection = self.open_cartons_tree.selection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select a carton")
+            return
+
+        item = self.open_cartons_tree.item(selection[0])
+        carton_id = item['tags'][0] if item['tags'] else None
+        if carton_id:
+            self.current_carton = db.get_carton_by_id(int(carton_id))
+            self._update_current_carton_display()
+
+    def _get_selected_carton_location(self):
+        """Get selected location for carton"""
+        selection = self.carton_location_var.get()
+        if selection:
+            code = selection.split(" - ")[0]
+            for l in db.get_all_locations():
+                if l['code'] == code:
+                    return dict(l)
+        return None
+
+    def _get_selected_carton_packer(self):
+        """Get selected packer for carton"""
+        selection = self.carton_packer_var.get()
+        if selection:
+            code = selection.split(" - ")[0]
+            for p in db.get_all_packers():
+                if p['code'] == code:
+                    return dict(p)
+        return None
+
+    def _get_selected_carton_product(self):
+        """Get selected product for carton"""
+        selection = self.carton_product_var.get()
+        if selection:
+            code = selection.split(" - ")[0]
+            for p in db.get_all_products():
+                if p['code'] == code:
+                    return dict(p)
+        return None
+
+    # ==================== CARTON LOOKUP TAB ====================
+
+    def _create_carton_lookup_tab(self):
+        """Create carton lookup tab"""
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Carton Lookup")
+
+        # Search section
+        search_frame = ttk.LabelFrame(tab, text="Scan/Enter Carton Barcode", padding=10)
+        search_frame.pack(fill=tk.X, padx=10, pady=10)
+
+        ttk.Label(search_frame, text="Carton Barcode:", style="Header.TLabel").pack(side=tk.LEFT, padx=5)
+        self.lookup_barcode_var = tk.StringVar()
+        self.lookup_entry = ttk.Entry(search_frame, textvariable=self.lookup_barcode_var, width=40)
+        self.lookup_entry.pack(side=tk.LEFT, padx=5)
+        self.lookup_entry.bind('<Return>', lambda e: self._lookup_carton())
+
+        ttk.Button(search_frame, text="Lookup", command=self._lookup_carton).pack(side=tk.LEFT, padx=5)
+        ttk.Button(search_frame, text="Clear", command=self._clear_lookup).pack(side=tk.LEFT, padx=5)
+
+        # Results section
+        results_frame = ttk.Frame(tab)
+        results_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+        # Carton info
+        info_frame = ttk.LabelFrame(results_frame, text="Carton Information", padding=10)
+        info_frame.pack(fill=tk.X, pady=5)
+
+        self.lookup_info_text = tk.Text(info_frame, height=6, state=tk.DISABLED, wrap=tk.WORD)
+        self.lookup_info_text.pack(fill=tk.X)
+
+        # Contents summary
+        summary_frame = ttk.LabelFrame(results_frame, text="Contents Summary", padding=10)
+        summary_frame.pack(fill=tk.X, pady=5)
+
+        columns = ("product_code", "product_name", "total_quantity")
+        self.summary_tree = ttk.Treeview(summary_frame, columns=columns, show="headings", height=5)
+
+        self.summary_tree.heading("product_code", text="Product Code")
+        self.summary_tree.heading("product_name", text="Product Name")
+        self.summary_tree.heading("total_quantity", text="Total Quantity")
+
+        self.summary_tree.column("product_code", width=150)
+        self.summary_tree.column("product_name", width=300)
+        self.summary_tree.column("total_quantity", width=100)
+
+        self.summary_tree.pack(fill=tk.X)
+
+        # Detailed contents
+        detail_frame = ttk.LabelFrame(results_frame, text="Detailed Contents", padding=10)
+        detail_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+
+        columns = ("product_code", "product_name", "quantity", "barcode", "added")
+        self.detail_tree = ttk.Treeview(detail_frame, columns=columns, show="headings")
+
+        self.detail_tree.heading("product_code", text="Code")
+        self.detail_tree.heading("product_name", text="Product")
+        self.detail_tree.heading("quantity", text="Qty")
+        self.detail_tree.heading("barcode", text="Product Barcode")
+        self.detail_tree.heading("added", text="Added")
+
+        self.detail_tree.column("product_code", width=100)
+        self.detail_tree.column("product_name", width=200)
+        self.detail_tree.column("quantity", width=50)
+        self.detail_tree.column("barcode", width=180)
+        self.detail_tree.column("added", width=150)
+
+        scrollbar = ttk.Scrollbar(detail_frame, orient=tk.VERTICAL, command=self.detail_tree.yview)
+        self.detail_tree.configure(yscrollcommand=scrollbar.set)
+
+        self.detail_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+    def _lookup_carton(self):
+        """Look up carton by barcode"""
+        barcode = self.lookup_barcode_var.get().strip()
+        if not barcode:
+            messagebox.showwarning("Warning", "Please enter a carton barcode")
+            return
+
+        carton = db.lookup_carton_by_barcode(barcode)
+
+        if not carton:
+            messagebox.showwarning("Not Found", f"No carton found with barcode: {barcode}")
+            self._clear_lookup()
+            return
+
+        # Update info display
+        self.lookup_info_text.config(state=tk.NORMAL)
+        self.lookup_info_text.delete(1.0, tk.END)
+
+        info = (
+            f"Barcode: {carton['barcode']}\n"
+            f"Status: {carton['status'].upper()}\n"
+            f"Destination: {carton['location_name']} ({carton['location_code']})\n"
+            f"Packed by: {carton['packer_name']} ({carton['packer_code']})\n"
+            f"Created: {carton['created_at']}\n"
+        )
+        if carton['closed_at']:
+            info += f"Closed: {carton['closed_at']}\n"
+        if carton['notes']:
+            info += f"Notes: {carton['notes']}\n"
+
+        self.lookup_info_text.insert(tk.END, info)
+        self.lookup_info_text.config(state=tk.DISABLED)
+
+        # Update summary
+        self.summary_tree.delete(*self.summary_tree.get_children())
+        for s in carton['summary']:
+            self.summary_tree.insert("", tk.END, values=(
+                s['product_code'],
+                s['product_name'],
+                s['total_quantity']
+            ))
+
+        # Update detailed contents
+        self.detail_tree.delete(*self.detail_tree.get_children())
+        for c in carton['contents']:
+            self.detail_tree.insert("", tk.END, values=(
+                c['product_code'],
+                c['product_name'],
+                c['quantity'],
+                c['product_barcode'] or "",
+                c['added_at']
+            ))
+
+    def _clear_lookup(self):
+        """Clear lookup results"""
+        self.lookup_barcode_var.set("")
+        self.lookup_info_text.config(state=tk.NORMAL)
+        self.lookup_info_text.delete(1.0, tk.END)
+        self.lookup_info_text.config(state=tk.DISABLED)
+        self.summary_tree.delete(*self.summary_tree.get_children())
+        self.detail_tree.delete(*self.detail_tree.get_children())
 
     # ==================== PRODUCTS TAB ====================
 
@@ -721,15 +1233,21 @@ class BarcodeApp:
         """Refresh all combo boxes"""
         # Products
         products = db.get_all_products()
-        self.product_combo['values'] = [f"{p['code']} - {p['name']}" for p in products]
+        product_values = [f"{p['code']} - {p['name']}" for p in products]
+        self.product_combo['values'] = product_values
+        self.carton_product_combo['values'] = product_values
 
         # Locations
         locations = db.get_all_locations()
-        self.location_combo['values'] = [f"{l['code']} - {l['name']}" for l in locations]
+        location_values = [f"{l['code']} - {l['name']}" for l in locations]
+        self.location_combo['values'] = location_values
+        self.carton_location_combo['values'] = location_values
 
         # Packers (active only)
         packers = db.get_all_packers(active_only=True)
-        self.packer_combo['values'] = [f"{p['code']} - {p['name']}" for p in packers]
+        packer_values = [f"{p['code']} - {p['name']}" for p in packers]
+        self.packer_combo['values'] = packer_values
+        self.carton_packer_combo['values'] = packer_values
 
     def _refresh_all_data(self):
         """Refresh all data in the application"""
@@ -737,6 +1255,7 @@ class BarcodeApp:
         self._refresh_locations()
         self._refresh_packers()
         self._refresh_history()
+        self._refresh_open_cartons()
 
     def _export_history(self):
         """Export history to CSV"""
@@ -819,12 +1338,14 @@ class BarcodeApp:
         messagebox.showinfo(
             "About",
             "Barcode Generator for TSC TE200\n\n"
-            "Version 1.0\n\n"
+            "Version 1.1\n\n"
             "Features:\n"
             "- Generate Code128 and QR barcodes\n"
             "- Embed destination, product, and packer info\n"
             "- Print directly to TSC TE200\n"
-            "- Track printing history"
+            "- Track printing history\n"
+            "- Carton packing and tracking\n"
+            "- Scan carton to view contents"
         )
 
 
