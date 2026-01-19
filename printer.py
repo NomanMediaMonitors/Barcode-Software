@@ -63,44 +63,60 @@ class TSCPrinter:
                            x_mult: int = 1, y_mult: int = 1) -> str:
         return f'TEXT {x},{y},"{font}",{rotation},{x_mult},{y_mult},"{text}"'
 
+    def _truncate_to_fit(self, text: str, max_width_dots: int, font: str) -> str:
+        """Truncate text to fit within max_width_dots based on font size."""
+        # TSPL font widths (approximate dots per character)
+        font_widths = {"1": 8, "2": 12, "3": 16, "4": 24, "5": 32}
+        char_width = font_widths.get(font, 12)
+        max_chars = max_width_dots // char_width
+        return text[:max_chars]
+
     def generate_label_tspl(self, barcode_data: str, product_name: str,
                             location_name: str, packer_name: str,
                             use_qrcode: bool = False) -> str:
         commands = [self._get_tspl_header()]
 
-        # X offset for right sticker (left sticker X + sticker width + gap)
+        # Layout constants for each sticker
+        margin = 16              # 2mm margin on each side
+        usable_width = self.sticker_width - (margin * 2)  # 408 - 32 = 376 dots
+
+        # X offset for right sticker
         right_offset = self.sticker_width + self.sticker_gap  # 408 + 24 = 432 dots
 
         # Print identical content on BOTH stickers (left and right)
         for x_offset in [0, right_offset]:
-            # Product name at top (x=30 to account for left margin)
+            x_start = margin + x_offset
+
+            # Product name at top - use font 2 (smaller) to fit more text
+            product_text = self._truncate_to_fit(product_name, usable_width, "2")
             commands.append(self.generate_tspl_text(
-                f"Product: {product_name[:18]}",
-                x=30 + x_offset, y=10, font="3", x_mult=1, y_mult=1
+                product_text,
+                x=x_start, y=8, font="2", x_mult=1, y_mult=1
             ))
 
             # Barcode in middle
-            # Use narrow=1 to keep barcode width within single sticker bounds
             if use_qrcode:
                 commands.append(self.generate_tspl_qrcode(
-                    barcode_data, x=120 + x_offset, y=40, cell_width=3
+                    barcode_data, x=x_start + 80, y=35, cell_width=3
                 ))
             else:
                 commands.append(self.generate_tspl_barcode(
-                    barcode_data, x=40 + x_offset, y=50, height=60, human_readable=2,
+                    barcode_data, x=x_start, y=40, height=55, human_readable=2,
                     narrow=1, wide=2
                 ))
 
             # Destination
+            dest_text = self._truncate_to_fit(f"Dest: {location_name}", usable_width, "2")
             commands.append(self.generate_tspl_text(
-                f"Dest: {location_name[:15]}",
-                x=30 + x_offset, y=200, font="2", x_mult=1, y_mult=1
+                dest_text,
+                x=x_start, y=185, font="2", x_mult=1, y_mult=1
             ))
 
             # Packer
+            packer_text = self._truncate_to_fit(f"Packed: {packer_name}", usable_width, "2")
             commands.append(self.generate_tspl_text(
-                f"Packed: {packer_name[:12]}",
-                x=30 + x_offset, y=230, font="2", x_mult=1, y_mult=1
+                packer_text,
+                x=x_start, y=210, font="2", x_mult=1, y_mult=1
             ))
 
         # Print command
