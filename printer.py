@@ -13,13 +13,16 @@ class TSCPrinter:
     def __init__(self, printer_name: str = None, port: str = None):
         self.printer_name = printer_name or PRINTER_SETTINGS.get("name", "TSC TE200")
         self.port = port or PRINTER_SETTINGS.get("port", "USB")
-        self.width = PRINTER_SETTINGS.get("width", 400)
-        self.height = PRINTER_SETTINGS.get("height", 240)
+        self.width = PRINTER_SETTINGS.get("width", 864)
+        self.height = PRINTER_SETTINGS.get("height", 304)
         self.speed = PRINTER_SETTINGS.get("speed", 4)
         self.density = PRINTER_SETTINGS.get("density", 8)
         # Direction: 0 for printers with 180° natural orientation, 1 for 0° orientation
         self.direction = PRINTER_SETTINGS.get("direction", 0)
         self.mirror = PRINTER_SETTINGS.get("mirror", 0)
+        # 2-column sticker layout settings
+        self.sticker_width = PRINTER_SETTINGS.get("sticker_width_dots", 408)
+        self.sticker_gap = PRINTER_SETTINGS.get("sticker_gap_dots", 24)
         self._detected_printer = None
         self._last_error = None
 
@@ -32,8 +35,8 @@ class TSCPrinter:
         height_mm = self.height // 8
         commands = [
             f"SIZE {width_mm} mm,{height_mm} mm",
-            # GAP vertical,horizontal - for 2-column labels with 3mm horizontal gap
-            "GAP 3 mm,3 mm",
+            # GAP: vertical gap between rows (no horizontal - we handle 2-column manually)
+            "GAP 3 mm,0 mm",
             f"SPEED {self.speed}",
             f"DENSITY {self.density}",
             # DIRECTION n,m: n=0 for 180° natural orientation printers, n=1 for 0° orientation
@@ -65,37 +68,40 @@ class TSCPrinter:
                             use_qrcode: bool = False) -> str:
         commands = [self._get_tspl_header()]
 
-        # Product name at top
-        commands.append(self.generate_tspl_text(
-            f"Product: {product_name[:25]}",
-            x=10, y=10, font="3", x_mult=1, y_mult=1
-        ))
+        # X offset for right sticker (left sticker X + sticker width + gap)
+        right_offset = self.sticker_width + self.sticker_gap  # 408 + 24 = 432 dots
 
-        # Barcode in middle
-        # Use narrow=1 to keep barcode width within single sticker bounds
-        # Code 128 width ≈ (11 × chars + 35) × narrow_dots
-        # With narrow=1: ~300 dots = 37mm (fits in 50mm sticker)
-        if use_qrcode:
-            commands.append(self.generate_tspl_qrcode(
-                barcode_data, x=100, y=40, cell_width=3
-            ))
-        else:
-            commands.append(self.generate_tspl_barcode(
-                barcode_data, x=20, y=50, height=60, human_readable=2,
-                narrow=1, wide=2
+        # Print identical content on BOTH stickers (left and right)
+        for x_offset in [0, right_offset]:
+            # Product name at top
+            commands.append(self.generate_tspl_text(
+                f"Product: {product_name[:20]}",
+                x=10 + x_offset, y=10, font="3", x_mult=1, y_mult=1
             ))
 
-        # Destination - positioned for 38mm (304 dots) label height
-        commands.append(self.generate_tspl_text(
-            f"Dest: {location_name[:20]}",
-            x=10, y=200, font="2", x_mult=1, y_mult=1
-        ))
+            # Barcode in middle
+            # Use narrow=1 to keep barcode width within single sticker bounds
+            if use_qrcode:
+                commands.append(self.generate_tspl_qrcode(
+                    barcode_data, x=100 + x_offset, y=40, cell_width=3
+                ))
+            else:
+                commands.append(self.generate_tspl_barcode(
+                    barcode_data, x=20 + x_offset, y=50, height=60, human_readable=2,
+                    narrow=1, wide=2
+                ))
 
-        # Packer
-        commands.append(self.generate_tspl_text(
-            f"Packed: {packer_name[:15]}",
-            x=10, y=230, font="2", x_mult=1, y_mult=1
-        ))
+            # Destination
+            commands.append(self.generate_tspl_text(
+                f"Dest: {location_name[:15]}",
+                x=10 + x_offset, y=200, font="2", x_mult=1, y_mult=1
+            ))
+
+            # Packer
+            commands.append(self.generate_tspl_text(
+                f"Packed: {packer_name[:12]}",
+                x=10 + x_offset, y=230, font="2", x_mult=1, y_mult=1
+            ))
 
         # Print command
         commands.append("PRINT 1,1")
