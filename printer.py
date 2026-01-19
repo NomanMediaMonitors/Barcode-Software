@@ -158,6 +158,7 @@ class TSCPrinter:
         printers = self.list_printers()
         tsc_keywords = ['TSC', 'TE200', 'TE-200', 'TE 200', 'TTP', 'TDP']
 
+        # First, try to find a TSC printer
         for printer in printers:
             printer_upper = printer.upper()
             for keyword in tsc_keywords:
@@ -165,8 +166,29 @@ class TSCPrinter:
                     self._detected_printer = printer
                     return printer
 
-        # If no TSC printer found, return configured name
+        # Check if configured printer name exists in the list
+        for printer in printers:
+            if printer.upper() == self.printer_name.upper():
+                self._detected_printer = printer
+                return printer
+
+        # If no TSC printer found, return configured name (user must set it correctly)
+        # Do NOT fall back to other printers like Zebra
         return self.printer_name
+
+    def is_tsc_printer_available(self) -> bool:
+        """Check if a TSC printer is actually available"""
+        printers = self.list_printers()
+        tsc_keywords = ['TSC', 'TE200', 'TE-200', 'TE 200', 'TTP', 'TDP']
+
+        for printer in printers:
+            printer_upper = printer.upper()
+            for keyword in tsc_keywords:
+                if keyword in printer_upper:
+                    return True
+
+        # Also check if configured name exists
+        return self.printer_name in printers
 
     def _send_via_win32print(self, tspl_commands: str, printer_name: str) -> bool:
         """Send using Windows print spooler (pywin32)"""
@@ -294,6 +316,21 @@ class TSCPrinter:
         """
         self._last_error = None
 
+        # Find printer first
+        printer_name = self.find_tsc_printer()
+
+        # Check if TSC printer is actually available
+        if not self.is_tsc_printer_available():
+            available = self.list_printers()
+            return False, (
+                f"TSC printer '{printer_name}' not found!\n\n"
+                f"Available printers:\n" +
+                "\n".join(f"  - {p}" for p in available) +
+                "\n\nPlease:\n"
+                "1. Install TSC TE200 driver\n"
+                "2. Or update 'name' in config.py PRINTER_SETTINGS"
+            )
+
         # Generate TSPL commands
         tspl = self.generate_label_tspl(
             barcode_data, product_name, location_name, packer_name, use_qrcode
@@ -302,9 +339,6 @@ class TSCPrinter:
         # Adjust for copies
         if copies > 1:
             tspl = tspl.replace("PRINT 1,1", f"PRINT {copies},1")
-
-        # Find printer
-        printer_name = self.find_tsc_printer()
 
         # Try different methods in order of preference
         methods = []
