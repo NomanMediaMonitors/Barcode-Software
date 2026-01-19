@@ -32,7 +32,8 @@ class TSCPrinter:
         height_mm = self.height // 8
         commands = [
             f"SIZE {width_mm} mm,{height_mm} mm",
-            "GAP 3 mm,0 mm",
+            # GAP vertical,horizontal - for 2-column labels with 3mm horizontal gap
+            "GAP 3 mm,3 mm",
             f"SPEED {self.speed}",
             f"DENSITY {self.density}",
             # DIRECTION n,m: n=0 for 180° natural orientation printers, n=1 for 0° orientation
@@ -71,25 +72,29 @@ class TSCPrinter:
         ))
 
         # Barcode in middle
+        # Use narrow=1 to keep barcode width within single sticker bounds
+        # Code 128 width ≈ (11 × chars + 35) × narrow_dots
+        # With narrow=1: ~300 dots = 37mm (fits in 50mm sticker)
         if use_qrcode:
             commands.append(self.generate_tspl_qrcode(
-                barcode_data, x=130, y=40, cell_width=4
+                barcode_data, x=100, y=40, cell_width=3
             ))
         else:
             commands.append(self.generate_tspl_barcode(
-                barcode_data, x=30, y=50, height=70, human_readable=2
+                barcode_data, x=20, y=50, height=60, human_readable=2,
+                narrow=1, wide=2
             ))
 
-        # Destination
+        # Destination - positioned for 38mm (304 dots) label height
         commands.append(self.generate_tspl_text(
             f"Dest: {location_name[:20]}",
-            x=10, y=160, font="2", x_mult=1, y_mult=1
+            x=10, y=200, font="2", x_mult=1, y_mult=1
         ))
 
         # Packer
         commands.append(self.generate_tspl_text(
             f"Packed: {packer_name[:15]}",
-            x=10, y=185, font="2", x_mult=1, y_mult=1
+            x=10, y=230, font="2", x_mult=1, y_mult=1
         ))
 
         # Print command
