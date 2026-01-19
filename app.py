@@ -227,8 +227,22 @@ class BarcodeApp:
         frame = tk.Frame(parent, bg=COLORS["card"], padx=20, pady=20)
         frame.pack(fill=tk.X)
 
-        tk.Label(frame, text="Carton", font=("Segoe UI", 14, "bold"),
-                bg=COLORS["card"], fg=COLORS["text"]).pack(anchor=tk.W)
+        # Header with checkbox
+        header_frame = tk.Frame(frame, bg=COLORS["card"])
+        header_frame.pack(fill=tk.X)
+
+        tk.Label(header_frame, text="Carton", font=("Segoe UI", 14, "bold"),
+                bg=COLORS["card"], fg=COLORS["text"]).pack(side=tk.LEFT)
+
+        # Enable/Disable checkbox
+        self.carton_enabled_var = tk.BooleanVar(value=True)
+        self.carton_checkbox = tk.Checkbutton(
+            header_frame, text="Enabled", variable=self.carton_enabled_var,
+            bg=COLORS["card"], fg=COLORS["text"], selectcolor=COLORS["input_bg"],
+            activebackground=COLORS["card"], activeforeground=COLORS["text"],
+            font=("Segoe UI", 9), command=self._toggle_carton_mode
+        )
+        self.carton_checkbox.pack(side=tk.RIGHT)
 
         # Carton status
         self.carton_status_frame = tk.Frame(frame, bg=COLORS["card"])
@@ -275,12 +289,17 @@ class BarcodeApp:
         btn_frame = tk.Frame(header, bg=COLORS["card"])
         btn_frame.pack(side=tk.RIGHT)
 
+        export_btn = tk.Button(btn_frame, text="Export CSV", font=("Segoe UI", 9),
+                              bg=COLORS["accent"], fg="white", border=0, padx=12, pady=6,
+                              cursor="hand2", command=self._export_cart)
+        export_btn.pack(side=tk.LEFT, padx=(0, 10))
+
         clear_btn = tk.Button(btn_frame, text="Clear All", font=("Segoe UI", 9),
                              bg=COLORS["danger"], fg="white", border=0, padx=12, pady=6,
                              cursor="hand2", command=self._clear_cart)
         clear_btn.pack(side=tk.LEFT, padx=(0, 10))
 
-        print_btn = tk.Button(btn_frame, text="Print All & Add to Carton", font=("Segoe UI", 10, "bold"),
+        print_btn = tk.Button(btn_frame, text="Print All", font=("Segoe UI", 10, "bold"),
                              bg=COLORS["primary"], fg="white", border=0, padx=15, pady=8,
                              cursor="hand2", command=self._print_all_cart)
         print_btn.pack(side=tk.LEFT)
@@ -617,14 +636,55 @@ class BarcodeApp:
             self.cart_items = []
             self._refresh_cart()
 
-    def _print_all_cart(self):
-        """Print all items in cart and add to carton"""
+    def _export_cart(self):
+        """Export cart items to CSV"""
         if not self.cart_items:
             messagebox.showwarning("Warning", "Cart is empty")
             return
 
-        # Create carton if none exists
-        if not self.current_carton:
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")],
+            initialfilename=f"cart_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        )
+
+        if filename:
+            with open(filename, 'w') as f:
+                f.write("Product Code,Product Name,Destination,Packer,Quantity\n")
+                for item in self.cart_items:
+                    f.write(f"{item['product']['code']},{item['product']['name']},"
+                           f"{item['location']['name']},{item['packer']['name']},{item['quantity']}\n")
+            messagebox.showinfo("Success", f"Cart exported to:\n{filename}")
+
+    def _toggle_carton_mode(self):
+        """Toggle carton mode on/off"""
+        if self.carton_enabled_var.get():
+            self.carton_status_frame.pack(fill=tk.X, pady=(10, 15))
+            self._update_carton_display()
+        else:
+            # Disable carton mode
+            if self.current_carton:
+                if messagebox.askyesno("Close Carton?",
+                    "Disabling carton mode will close the current carton.\nContinue?"):
+                    db.close_carton(self.current_carton['id'])
+                    self.current_carton = None
+                else:
+                    self.carton_enabled_var.set(True)
+                    return
+            self.carton_status_label.config(text="Carton mode disabled", fg=COLORS["text_dim"])
+            self.carton_barcode_label.config(text="Products will print without carton tracking")
+            self.carton_count_label.config(text="")
+
+    def _print_all_cart(self):
+        """Print all items in cart and optionally add to carton"""
+        if not self.cart_items:
+            messagebox.showwarning("Warning", "Cart is empty")
+            return
+
+        carton_mode = self.carton_enabled_var.get()
+
+        # Create carton if enabled and none exists
+        if carton_mode and not self.current_carton:
             first_item = self.cart_items[0]
             carton_id, barcode = db.create_carton(
                 first_item['location']['id'],
@@ -665,13 +725,14 @@ class BarcodeApp:
                     item['quantity']
                 )
 
-                # Add to carton
-                db.add_product_to_carton(
-                    self.current_carton['id'],
-                    item['product']['id'],
-                    item['quantity'],
-                    barcode_data
-                )
+                # Add to carton only if carton mode enabled
+                if carton_mode and self.current_carton:
+                    db.add_product_to_carton(
+                        self.current_carton['id'],
+                        item['product']['id'],
+                        item['quantity'],
+                        barcode_data
+                    )
                 success_count += 1
             else:
                 fail_count += 1
@@ -679,11 +740,15 @@ class BarcodeApp:
         # Clear cart and refresh
         self.cart_items = []
         self._refresh_cart()
-        self._update_carton_display()
+        if carton_mode:
+            self._update_carton_display()
         self._refresh_history()
 
         if fail_count == 0:
-            messagebox.showinfo("Success", f"Printed {success_count} labels and added to carton")
+            if carton_mode:
+                messagebox.showinfo("Success", f"Printed {success_count} labels and added to carton")
+            else:
+                messagebox.showinfo("Success", f"Printed {success_count} labels")
         else:
             messagebox.showwarning("Partial Success", f"Printed {success_count} labels, {fail_count} failed")
 
@@ -691,6 +756,10 @@ class BarcodeApp:
 
     def _create_new_carton(self):
         """Create a new carton"""
+        if not self.carton_enabled_var.get():
+            messagebox.showwarning("Warning", "Carton mode is disabled. Enable it first.")
+            return
+
         if not self.location_var.get() or not self.packer_var.get():
             messagebox.showwarning("Warning", "Please select destination and packer first")
             return
