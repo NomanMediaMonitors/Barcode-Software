@@ -17,6 +17,9 @@ class TSCPrinter:
         self.height = PRINTER_SETTINGS.get("height", 240)
         self.speed = PRINTER_SETTINGS.get("speed", 4)
         self.density = PRINTER_SETTINGS.get("density", 8)
+        # Direction: 0 for printers with 180° natural orientation, 1 for 0° orientation
+        self.direction = PRINTER_SETTINGS.get("direction", 0)
+        self.mirror = PRINTER_SETTINGS.get("mirror", 0)
         self._detected_printer = None
         self._last_error = None
 
@@ -32,7 +35,9 @@ class TSCPrinter:
             "GAP 3 mm,0 mm",
             f"SPEED {self.speed}",
             f"DENSITY {self.density}",
-            "DIRECTION 1,0",
+            # DIRECTION n,m: n=0 for 180° natural orientation printers, n=1 for 0° orientation
+            # m=0 for normal, m=1 for mirror
+            f"DIRECTION {self.direction},{self.mirror}",
             "CLS",
         ]
         # TSPL requires CRLF line endings
