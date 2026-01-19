@@ -77,8 +77,8 @@ class TSCPrinter:
         commands = [self._get_tspl_header()]
 
         # Sticker layout (each sticker: 51mm x 38mm = 408 x 304 dots)
-        margin = 12              # ~1.5mm margin
-        usable_width = self.sticker_width - (margin * 2)  # ~384 dots
+        margin = 30              # ~3.75mm margin (increased to prevent left cutoff)
+        usable_width = self.sticker_width - (margin * 2)  # ~348 dots
 
         # X offset for right sticker
         right_offset = self.sticker_width + self.sticker_gap  # 432 dots
@@ -88,7 +88,7 @@ class TSCPrinter:
             x_start = margin + x_offset
 
             # Product name at top (font 2 = 12 dots/char, max ~32 chars)
-            product_text = f"SKU: {self._truncate_to_fit(product_name, usable_width - 96, '2')}"
+            product_text = f"Product: {self._truncate_to_fit(product_name, usable_width - 96, '2')}"
             commands.append(self.generate_tspl_text(
                 product_text,
                 x=x_start, y=8, font="2", x_mult=1, y_mult=1
@@ -106,18 +106,18 @@ class TSCPrinter:
                     narrow=1, wide=2
                 ))
 
-            # Bottom section - Dest on left
+            # Bottom section - Dest closer to barcode (reduced gap)
             dest_text = f"Dest: {self._truncate_to_fit(location_name, 180, '2')}"
             commands.append(self.generate_tspl_text(
                 dest_text,
-                x=x_start, y=245, font="2", x_mult=1, y_mult=1
+                x=x_start, y=140, font="2", x_mult=1, y_mult=1
             ))
 
             # Packed by on left, below dest
             packer_text = f"Packed by: {self._truncate_to_fit(packer_name, 150, '1')}"
             commands.append(self.generate_tspl_text(
                 packer_text,
-                x=x_start, y=270, font="1", x_mult=1, y_mult=1
+                x=x_start, y=165, font="1", x_mult=1, y_mult=1
             ))
 
         # Print command
