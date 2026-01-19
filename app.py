@@ -1,14 +1,3 @@
-"""
-Barcode Generation Software - Main GUI Application
-For TSC TE200 Printer
-
-Features:
-- Manage Products, Locations, and Packers
-- Generate barcodes with embedded metadata
-- Print directly to TSC TE200 printer
-- View printing history and statistics
-"""
-
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from datetime import datetime
@@ -44,13 +33,11 @@ class BarcodeApp:
         self._refresh_all_data()
 
     def _setup_styles(self):
-        """Setup ttk styles"""
         style = ttk.Style()
         style.configure("Title.TLabel", font=("Helvetica", 14, "bold"))
         style.configure("Header.TLabel", font=("Helvetica", 11, "bold"))
 
     def _create_menu(self):
-        """Create application menu"""
         menubar = tk.Menu(self.root)
         self.root.config(menu=menubar)
 
@@ -72,7 +59,6 @@ class BarcodeApp:
         help_menu.add_command(label="About", command=self._show_about)
 
     def _create_notebook(self):
-        """Create main tabbed interface"""
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
@@ -86,7 +72,6 @@ class BarcodeApp:
     # ==================== GENERATE TAB ====================
 
     def _create_generate_tab(self):
-        """Create the main barcode generation tab"""
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text="Generate Barcode")
 
@@ -178,7 +163,6 @@ class BarcodeApp:
         ).pack(pady=10)
 
     def _preview_label(self):
-        """Generate and preview the label"""
         if not self._validate_selection():
             return
 
@@ -219,7 +203,6 @@ class BarcodeApp:
         self.barcode_data_var.set(f"Barcode: {barcode_data}")
 
     def _display_preview(self, image: Image.Image):
-        """Display image on preview canvas"""
         # Resize to fit canvas
         canvas_width = self.preview_canvas.winfo_width() or 400
         canvas_height = self.preview_canvas.winfo_height() or 300
@@ -240,7 +223,6 @@ class BarcodeApp:
         )
 
     def _print_label(self):
-        """Print the current label"""
         if self.current_label_image is None:
             messagebox.showwarning("Warning", "Please preview the label first")
             return

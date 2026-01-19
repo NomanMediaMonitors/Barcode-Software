@@ -88,7 +88,7 @@ class TSCPrinter:
             x_start = margin + x_offset
 
             # Product name at top (font 2 = 12 dots/char, max ~32 chars)
-            product_text = f"Product: {self._truncate_to_fit(product_name, usable_width - 96, '2')}"
+            product_text = f"SKU: {self._truncate_to_fit(product_name, usable_width - 96, '2')}"
             commands.append(self.generate_tspl_text(
                 product_text,
                 x=x_start, y=8, font="2", x_mult=1, y_mult=1

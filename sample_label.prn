@@ -1,0 +1,11 @@
+SIZE 51 mm,38 mm
+GAP 3 mm,3 mm
+SPEED 4
+DENSITY 8
+DIRECTION 0,0
+CLS
+TEXT 10,10,"3",0,1,1,"Product: Leather Bag"
+BARCODE 20,50,"128",60,2,0,1,2,"LOC01-BAG01-PKR01-20240115"
+TEXT 10,200,"2",0,1,1,"Dest: NYC Warehouse"
+TEXT 10,230,"2",0,1,1,"Packed: John Smith"
+PRINT 1,1
