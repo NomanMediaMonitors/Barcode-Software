@@ -77,8 +77,9 @@ class TSCPrinter:
         commands = [self._get_tspl_header()]
 
         # Sticker layout (each sticker: 51mm x 38mm = 408 x 304 dots)
-        margin = 30              # ~3.75mm margin (increased to prevent left cutoff)
-        usable_width = self.sticker_width - (margin * 2)  # ~348 dots
+        margin = 45              # ~5.6mm left margin (moved further right)
+        top_margin = 20          # ~2.5mm top margin
+        usable_width = self.sticker_width - (margin * 2)  # ~318 dots
 
         # X offset for right sticker
         right_offset = self.sticker_width + self.sticker_gap  # 432 dots
@@ -91,18 +92,18 @@ class TSCPrinter:
             product_text = f"Product: {self._truncate_to_fit(product_name, usable_width - 96, '2')}"
             commands.append(self.generate_tspl_text(
                 product_text,
-                x=x_start, y=8, font="2", x_mult=1, y_mult=1
+                x=x_start, y=top_margin + 8, font="2", x_mult=1, y_mult=1
             ))
 
             # Barcode in middle - centered
             if use_qrcode:
                 commands.append(self.generate_tspl_qrcode(
-                    barcode_data, x=x_start + 120, y=30, cell_width=4
+                    barcode_data, x=x_start + 120, y=top_margin + 30, cell_width=4
                 ))
             else:
                 # Barcode with text below (human_readable=2)
                 commands.append(self.generate_tspl_barcode(
-                    barcode_data, x=x_start + 8, y=35, height=50, human_readable=2,
+                    barcode_data, x=x_start + 8, y=top_margin + 35, height=50, human_readable=2,
                     narrow=1, wide=2
                 ))
 
@@ -110,14 +111,14 @@ class TSCPrinter:
             dest_text = f"Dest: {self._truncate_to_fit(location_name, 180, '2')}"
             commands.append(self.generate_tspl_text(
                 dest_text,
-                x=x_start, y=140, font="2", x_mult=1, y_mult=1
+                x=x_start, y=top_margin + 140, font="2", x_mult=1, y_mult=1
             ))
 
             # Packed by on left, below dest
             packer_text = f"Packed by: {self._truncate_to_fit(packer_name, 150, '1')}"
             commands.append(self.generate_tspl_text(
                 packer_text,
-                x=x_start, y=165, font="1", x_mult=1, y_mult=1
+                x=x_start, y=top_margin + 165, font="1", x_mult=1, y_mult=1
             ))
 
         # Print command
