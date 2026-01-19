@@ -76,53 +76,53 @@ class TSCPrinter:
                             use_qrcode: bool = False) -> str:
         commands = [self._get_tspl_header()]
 
-        # Layout constants for each sticker
-        margin = 16              # 2mm margin on each side
-        usable_width = self.sticker_width - (margin * 2)  # 408 - 32 = 376 dots
+        # Sticker layout (each sticker: 51mm x 38mm = 408 x 304 dots)
+        margin = 12              # ~1.5mm margin
+        usable_width = self.sticker_width - (margin * 2)  # ~384 dots
 
         # X offset for right sticker
-        right_offset = self.sticker_width + self.sticker_gap  # 408 + 24 = 432 dots
+        right_offset = self.sticker_width + self.sticker_gap  # 432 dots
 
-        # Print identical content on BOTH stickers (left and right)
+        # Print identical content on BOTH stickers
         for x_offset in [0, right_offset]:
             x_start = margin + x_offset
 
-            # Product name at top - use font 2 (smaller) to fit more text
-            product_text = self._truncate_to_fit(product_name, usable_width, "2")
+            # Product name at top (font 2 = 12 dots/char, max ~32 chars)
+            product_text = f"Product: {self._truncate_to_fit(product_name, usable_width - 96, '2')}"
             commands.append(self.generate_tspl_text(
                 product_text,
                 x=x_start, y=8, font="2", x_mult=1, y_mult=1
             ))
 
-            # Barcode in middle
+            # Barcode in middle - centered
             if use_qrcode:
                 commands.append(self.generate_tspl_qrcode(
-                    barcode_data, x=x_start + 80, y=35, cell_width=3
+                    barcode_data, x=x_start + 120, y=30, cell_width=4
                 ))
             else:
+                # Barcode with text below (human_readable=2)
                 commands.append(self.generate_tspl_barcode(
-                    barcode_data, x=x_start, y=40, height=55, human_readable=2,
+                    barcode_data, x=x_start + 8, y=35, height=50, human_readable=2,
                     narrow=1, wide=2
                 ))
 
-            # Destination
-            dest_text = self._truncate_to_fit(f"Dest: {location_name}", usable_width, "2")
+            # Bottom section - Dest on left
+            dest_text = f"Dest: {self._truncate_to_fit(location_name, 180, '2')}"
             commands.append(self.generate_tspl_text(
                 dest_text,
-                x=x_start, y=185, font="2", x_mult=1, y_mult=1
+                x=x_start, y=245, font="2", x_mult=1, y_mult=1
             ))
 
-            # Packer
-            packer_text = self._truncate_to_fit(f"Packed: {packer_name}", usable_width, "2")
+            # Packed by on left, below dest
+            packer_text = f"Packed by: {self._truncate_to_fit(packer_name, 150, '1')}"
             commands.append(self.generate_tspl_text(
                 packer_text,
-                x=x_start, y=210, font="2", x_mult=1, y_mult=1
+                x=x_start, y=270, font="1", x_mult=1, y_mult=1
             ))
 
         # Print command
         commands.append("PRINT 1,1")
 
-        # TSPL requires CRLF line endings, plus trailing CRLF to flush buffer
         return "\r\n".join(commands) + "\r\n"
 
     @staticmethod
