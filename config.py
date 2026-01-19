@@ -16,11 +16,12 @@ BARCODE_TYPE = "code128"  # Options: code128, code39, ean13, qrcode
 BARCODE_PREFIX = "PKG"    # Prefix for generated codes
 
 # Label settings (in mm for TSC TE200)
-# For 2-column sticker layout: each sticker is 2" x 1.5" with 0.125" gap
-LABEL_WIDTH = 51    # 2 inches = 50.8mm, rounded to 51mm
-LABEL_HEIGHT = 38   # 1.5 inches = 38.1mm, rounded to 38mm
-LABEL_GAP = 3       # Vertical gap between labels
-LABEL_GAP_H = 3     # Horizontal gap between columns (0.125" = 3.175mm)
+# 2-column sticker layout: full page 4.25" wide, each sticker 2" x 1.5"
+LABEL_WIDTH = 108   # Full page width: 4.25 inches = 108mm
+LABEL_HEIGHT = 38   # Sticker height: 1.5 inches = 38mm
+LABEL_GAP = 3       # Vertical gap between label rows
+STICKER_WIDTH = 51  # Individual sticker width: 2 inches = 51mm
+STICKER_GAP = 3     # Horizontal gap between 2 stickers (0.125" = 3mm)
 
 # Printer specifications (from driver/hardware)
 # These values define the physical capabilities of the printer
@@ -65,16 +66,18 @@ PRINTER_SPECS = {
 }
 
 # Printer settings for TSC TE200
-# Configured for 2" x 1.5" stickers in 2-column layout
+# Configured for 2-column sticker layout (full page width)
 PRINTER_SETTINGS = {
     "name": "TSC TE200",
     "port": "USB",  # Can be COM port like "COM3" or "USB"
     "speed": 4,     # Print speed (1-6)
     "density": 8,   # Print density (0-15)
-    "width": 408,   # Label width in dots (8 dots/mm × 51mm = 408 dots)
-    "height": 304,  # Label height in dots (8 dots/mm × 38mm = 304 dots)
+    "width": 864,   # Full page width in dots (8 dots/mm × 108mm)
+    "height": 304,  # Label height in dots (8 dots/mm × 38mm)
     "direction": 0, # Print direction (0 for 180° natural orientation printers)
     "mirror": 0,    # Mirror mode (0=normal, 1=mirror)
+    "sticker_width_dots": 408,  # Single sticker: 51mm × 8 = 408 dots
+    "sticker_gap_dots": 24,     # Gap: 3mm × 8 = 24 dots
 }
 
 # Date format for timestamps
