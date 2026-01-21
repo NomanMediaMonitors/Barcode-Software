@@ -73,7 +73,19 @@ class TSCPrinter:
 
     def generate_label_tspl(self, barcode_data: str, product_name: str,
                             location_name: str, delivery_code: str,
-                            use_qrcode: bool = False) -> str:
+                            use_qrcode: bool = False,
+                            barcode_data_right: str = None) -> str:
+        """
+        Generate TSPL commands for label printing.
+
+        Args:
+            barcode_data: Barcode for left sticker
+            product_name: Product name to display
+            location_name: Destination name
+            delivery_code: Delivery code to display
+            use_qrcode: Use QR code instead of Code128
+            barcode_data_right: Barcode for right sticker (if None, left sticker only)
+        """
         commands = [self._get_tspl_header()]
 
         # Sticker layout (each sticker: 51mm x 38mm = 408 x 304 dots)
@@ -84,8 +96,12 @@ class TSCPrinter:
         # X offset for right sticker
         right_offset = self.sticker_width + self.sticker_gap  # 432 dots
 
-        # Print identical content on BOTH stickers
-        for x_offset in [0, right_offset]:
+        # Build list of stickers to print
+        sticker_data = [(0, barcode_data)]  # Left sticker always
+        if barcode_data_right:
+            sticker_data.append((right_offset, barcode_data_right))  # Right sticker if provided
+
+        for x_offset, current_barcode in sticker_data:
             x_start = margin + x_offset
 
             # Product name at top (font 2 = 12 dots/char, max ~32 chars)
@@ -98,12 +114,12 @@ class TSCPrinter:
             # Barcode in middle - centered
             if use_qrcode:
                 commands.append(self.generate_tspl_qrcode(
-                    barcode_data, x=x_start + 120, y=top_margin + 30, cell_width=4
+                    current_barcode, x=x_start + 120, y=top_margin + 30, cell_width=4
                 ))
             else:
                 # Barcode with text below (human_readable=2)
                 commands.append(self.generate_tspl_barcode(
-                    barcode_data, x=x_start + 8, y=top_margin + 35, height=50, human_readable=2,
+                    current_barcode, x=x_start + 8, y=top_margin + 35, height=50, human_readable=2,
                     narrow=1, wide=2
                 ))
 
@@ -312,7 +328,20 @@ class TSCPrinter:
 
     def print_label(self, barcode_data: str, product_name: str,
                     location_name: str, delivery_code: str,
-                    use_qrcode: bool = False, copies: int = 1) -> Tuple[bool, str]:
+                    use_qrcode: bool = False, copies: int = 1,
+                    barcode_data_right: str = None) -> Tuple[bool, str]:
+        """
+        Print label(s) to TSC printer.
+
+        Args:
+            barcode_data: Barcode for left sticker
+            product_name: Product name to display
+            location_name: Destination name
+            delivery_code: Delivery code to display
+            use_qrcode: Use QR code instead of Code128
+            copies: Number of copies to print
+            barcode_data_right: Barcode for right sticker (prints 2 different stickers per pass)
+        """
         self._last_error = None
 
         printer_name = self.find_tsc_printer()
@@ -329,7 +358,8 @@ class TSCPrinter:
             )
 
         tspl = self.generate_label_tspl(
-            barcode_data, product_name, location_name, delivery_code, use_qrcode
+            barcode_data, product_name, location_name, delivery_code, use_qrcode,
+            barcode_data_right
         )
 
         if copies > 1:
