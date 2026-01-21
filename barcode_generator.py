@@ -24,33 +24,34 @@ class BarcodeGenerator:
             os.makedirs(output_dir)
 
     def generate_barcode_data(self, location_code: str, product_code: str,
-                               packer_code: str, timestamp: Optional[str] = None) -> str:
+                               serial: int) -> str:
         """
         Generate the data string to be encoded in the barcode
 
-        Format: {LOCATION}-{PRODUCT}-{PACKER}-{TIMESTAMP}
-        Example: LOC01-BAG01-PKR03-20240115143022
+        Format: {LOCATION}-{PRODUCT}-{SERIAL}
+        Example: ISB-WALT BLCK-0001
         """
-        if timestamp is None:
-            timestamp = datetime.now().strftime(DATE_FORMAT)
-
-        barcode_data = f"{location_code}-{product_code}-{packer_code}-{timestamp}"
+        barcode_data = f"{location_code}-{product_code}-{serial:04d}"
         return barcode_data
 
     def parse_barcode_data(self, barcode_data: str) -> dict:
         """
         Parse barcode data back into components
 
-        Returns dict with: location_code, product_code, packer_code, timestamp
+        Returns dict with: location_code, product_code, serial
         """
-        parts = barcode_data.split("-")
-        if len(parts) >= 4:
-            return {
-                "location_code": parts[0],
-                "product_code": parts[1],
-                "packer_code": parts[2],
-                "timestamp": parts[3] if len(parts) == 4 else "-".join(parts[3:])
-            }
+        parts = barcode_data.rsplit("-", 1)  # Split from right to handle product codes with spaces
+        if len(parts) == 2:
+            location_product = parts[0]
+            serial = parts[1]
+            # Split location from product (first dash)
+            loc_parts = location_product.split("-", 1)
+            if len(loc_parts) == 2:
+                return {
+                    "location_code": loc_parts[0],
+                    "product_code": loc_parts[1],
+                    "serial": serial
+                }
         return {"raw": barcode_data}
 
     def generate_code128(self, data: str, include_text: bool = True) -> Image.Image:
@@ -138,7 +139,7 @@ class BarcodeGenerator:
             raise ValueError(f"Unsupported barcode type: {barcode_type}")
 
     def create_label(self, barcode_data: str, product_name: str,
-                     location_name: str, packer_name: str,
+                     location_name: str, delivery_code: str,
                      barcode_type: str = None,
                      label_size: Tuple[int, int] = (400, 300)) -> Image.Image:
         """
@@ -148,7 +149,7 @@ class BarcodeGenerator:
             barcode_data: Data to encode in barcode
             product_name: Product name to display
             location_name: Destination location name
-            packer_name: Packer name to display
+            delivery_code: Delivery code to display
             barcode_type: Type of barcode
             label_size: Label size in pixels (width, height)
         """
@@ -201,10 +202,10 @@ class BarcodeGenerator:
         # Product name at top
         draw.text((10, y_offset), f"Product: {product_name}", font=font_large, fill='black')
 
-        # Location and packer at bottom
+        # Location and delivery code at bottom
         bottom_y = barcode_y + barcode_img.height + 10
         draw.text((10, bottom_y), f"Dest: {location_name}", font=font_medium, fill='black')
-        draw.text((10, bottom_y + 18), f"Packed by: {packer_name}", font=font_small, fill='black')
+        draw.text((10, bottom_y + 18), f"Delivery: {delivery_code}", font=font_medium, fill='black')
 
         # Timestamp
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -222,8 +223,8 @@ class BarcodeGenerator:
         return filepath
 
     def generate_and_save(self, location_code: str, product_code: str,
-                          packer_code: str, product_name: str,
-                          location_name: str, packer_name: str,
+                          serial: int, product_name: str,
+                          location_name: str, delivery_code: str,
                           barcode_type: str = None) -> Tuple[str, str, Image.Image]:
         """
         Complete workflow: generate barcode data, create label, and save
@@ -233,18 +234,18 @@ class BarcodeGenerator:
         """
         # Generate barcode data
         barcode_data = self.generate_barcode_data(
-            location_code, product_code, packer_code
+            location_code, product_code, serial
         )
 
         # Create label
         label = self.create_label(
             barcode_data, product_name, location_name,
-            packer_name, barcode_type
+            delivery_code, barcode_type
         )
 
         # Generate filename
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{product_code}_{location_code}_{timestamp}.png"
+        filename = f"{product_code}_{location_code}_{serial:04d}_{timestamp}.png"
 
         # Save
         filepath = self.save_barcode(label, filename)
@@ -253,9 +254,9 @@ class BarcodeGenerator:
 
 
 # Convenience function
-def create_barcode(location_code: str, product_code: str, packer_code: str,
+def create_barcode(location_code: str, product_code: str, serial: int,
                    product_name: str = "", location_name: str = "",
-                   packer_name: str = "", barcode_type: str = "code128") -> Tuple[str, Image.Image]:
+                   delivery_code: str = "", barcode_type: str = "code128") -> Tuple[str, Image.Image]:
     """
     Quick function to create a barcode label
 
@@ -265,14 +266,14 @@ def create_barcode(location_code: str, product_code: str, packer_code: str,
     generator = BarcodeGenerator()
 
     barcode_data = generator.generate_barcode_data(
-        location_code, product_code, packer_code
+        location_code, product_code, serial
     )
 
     label = generator.create_label(
         barcode_data,
         product_name or product_code,
         location_name or location_code,
-        packer_name or packer_code,
+        delivery_code or "1A",
         barcode_type
     )
 
@@ -283,14 +284,14 @@ if __name__ == "__main__":
     # Test barcode generation
     gen = BarcodeGenerator()
 
-    # Test data
+    # Test data with new format: LOCATION-PRODUCT-SERIAL
     barcode_data, filepath, img = gen.generate_and_save(
-        location_code="LOC01",
-        product_code="BAG01",
-        packer_code="PKR01",
-        product_name="Leather Bag Type A",
-        location_name="New York Warehouse",
-        packer_name="John Smith"
+        location_code="ISB",
+        product_code="WALT BLCK",
+        serial=1,
+        product_name="WALLET BLACK",
+        location_name="Islamabad",
+        delivery_code="1A"
     )
 
     print(f"Generated barcode: {barcode_data}")

@@ -72,7 +72,7 @@ class TSCPrinter:
         return text[:max_chars]
 
     def generate_label_tspl(self, barcode_data: str, product_name: str,
-                            location_name: str, packer_name: str,
+                            location_name: str, delivery_code: str,
                             use_qrcode: bool = False) -> str:
         commands = [self._get_tspl_header()]
 
@@ -114,11 +114,11 @@ class TSCPrinter:
                 x=x_start, y=top_margin + 140, font="2", x_mult=1, y_mult=1
             ))
 
-            # Packed by on left, below dest
-            packer_text = f"Packed by: {self._truncate_to_fit(packer_name, 150, '1')}"
+            # Delivery code on left, below dest (larger font for visibility)
+            delivery_text = f"Delivery: {delivery_code}"
             commands.append(self.generate_tspl_text(
-                packer_text,
-                x=x_start, y=top_margin + 165, font="1", x_mult=1, y_mult=1
+                delivery_text,
+                x=x_start, y=top_margin + 165, font="2", x_mult=1, y_mult=1
             ))
 
         # Print command
@@ -311,7 +311,7 @@ class TSCPrinter:
             return False
 
     def print_label(self, barcode_data: str, product_name: str,
-                    location_name: str, packer_name: str,
+                    location_name: str, delivery_code: str,
                     use_qrcode: bool = False, copies: int = 1) -> Tuple[bool, str]:
         self._last_error = None
 
@@ -329,7 +329,7 @@ class TSCPrinter:
             )
 
         tspl = self.generate_label_tspl(
-            barcode_data, product_name, location_name, packer_name, use_qrcode
+            barcode_data, product_name, location_name, delivery_code, use_qrcode
         )
 
         if copies > 1:
@@ -365,10 +365,10 @@ class TSCPrinter:
         return False, error_msg
 
     def save_tspl_file(self, barcode_data: str, product_name: str,
-                       location_name: str, packer_name: str,
+                       location_name: str, delivery_code: str,
                        filename: str, use_qrcode: bool = False) -> str:
         tspl = self.generate_label_tspl(
-            barcode_data, product_name, location_name, packer_name, use_qrcode
+            barcode_data, product_name, location_name, delivery_code, use_qrcode
         )
 
         if not filename.endswith('.prn'):
@@ -399,13 +399,13 @@ class TSCPrinter:
 
 
 def print_barcode_label(barcode_data: str, product_name: str,
-                        location_name: str, packer_name: str,
+                        location_name: str, delivery_code: str,
                         copies: int = 1, use_qrcode: bool = False) -> Tuple[bool, str]:
 
     printer = TSCPrinter()
     return printer.print_label(
         barcode_data, product_name, location_name,
-        packer_name, use_qrcode, copies
+        delivery_code, use_qrcode, copies
     )
 
 
@@ -428,10 +428,10 @@ if __name__ == "__main__":
 
     # Save sample file
     filepath = printer.save_tspl_file(
-        barcode_data="LOC01-BAG01-PKR01-20240115",
-        product_name="Leather Bag",
-        location_name="NYC Warehouse",
-        packer_name="John Smith",
+        barcode_data="ISB-WALT BLCK-0001",
+        product_name="WALLET BLACK",
+        location_name="Islamabad",
+        delivery_code="1A",
         filename="sample_label"
     )
     print(f"\nSample TSPL saved to: {filepath}")

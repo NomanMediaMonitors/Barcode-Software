@@ -9,6 +9,17 @@ from barcode_generator import BarcodeGenerator
 from printer import TSCPrinter, print_barcode_label
 from config import SHORT_DATE_FORMAT
 
+# Try to import reportlab for PDF export
+try:
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter, A4
+    from reportlab.lib.units import inch, mm
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
+
 
 # Color scheme
 COLORS = {
@@ -23,6 +34,32 @@ COLORS = {
     "text_dim": "#7d8590",
     "input_bg": "#0d1117",
     "accent": "#58a6ff",
+}
+
+# Delivery codes
+DELIVERY_CODES = ["1A", "1B", "1C", "2A", "2B", "2C", "3A", "3B"]
+
+# City codes mapping
+CITY_CODES = {
+    "ISB": "Islamabad",
+    "SAR": "Sargodha",
+    "HYD": "Hyderabad",
+    "HOK": "H.O.Karachi",
+    "JEH": "Jehlum",
+    "KAR": "Karachi",
+    "LHR": "Lahore",
+    "MUL": "Multan",
+}
+
+# Product codes mapping
+PRODUCT_CODES = {
+    "WALT BLCK": "WALLET BLACK",
+    "WALT BRWN": "WALLET BROWN",
+    "WALT TAN": "WALLET TAN",
+    "4PCS BLCK": "4PC SET BLACK",
+    "4PCS BRWN": "4PC SET BROWN",
+    "4PCS TAN": "4PC SET TAN",
+    "LAPB NVYB": "LAPTOP BAG NAVY BLUE",
 }
 
 
@@ -116,8 +153,7 @@ class BarcodeApp:
         self.barcode_gen = BarcodeGenerator()
         self.printer = TSCPrinter()
         self.current_label_image = None
-        self.current_carton = None
-        self.cart_items = []  # Items to add to carton
+        self.cart_items = []
 
         self._create_menu()
         self._create_ui()
@@ -155,8 +191,8 @@ class BarcodeApp:
         left_panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 15))
         left_panel.pack_propagate(False)
 
+        self._create_delivery_section(left_panel)
         self._create_product_section(left_panel)
-        self._create_carton_section(left_panel)
 
         # Right side - Tabs
         right_panel = ttk.Frame(main)
@@ -166,21 +202,62 @@ class BarcodeApp:
         self.notebook.pack(fill=tk.BOTH, expand=True)
 
         self._create_cart_tab()
-        self._create_lookup_tab()
         self._create_products_tab()
         self._create_locations_tab()
-        self._create_packers_tab()
         self._create_history_tab()
+
+    def _create_delivery_section(self, parent):
+        """Create delivery code selection section"""
+        frame = tk.Frame(parent, bg=COLORS["card"], padx=20, pady=20)
+        frame.pack(fill=tk.X, pady=(0, 15))
+
+        tk.Label(frame, text="Delivery Settings", font=("Segoe UI", 14, "bold"),
+                bg=COLORS["card"], fg=COLORS["text"]).pack(anchor=tk.W)
+
+        tk.Label(frame, text="Select delivery code for all cart items",
+                font=("Segoe UI", 9), bg=COLORS["card"], fg=COLORS["text_dim"]).pack(anchor=tk.W, pady=(2, 15))
+
+        # Delivery Code dropdown
+        tk.Label(frame, text="Delivery Code", font=("Segoe UI", 10, "bold"),
+                bg=COLORS["card"], fg=COLORS["text"]).pack(anchor=tk.W)
+        self.delivery_var = tk.StringVar(value=DELIVERY_CODES[0])
+        self.delivery_combo = ttk.Combobox(frame, textvariable=self.delivery_var, state="readonly", width=35,
+                                           values=DELIVERY_CODES)
+        self.delivery_combo.pack(fill=tk.X, pady=(5, 15))
+
+        # Destination dropdown
+        tk.Label(frame, text="Destination", font=("Segoe UI", 10, "bold"),
+                bg=COLORS["card"], fg=COLORS["text"]).pack(anchor=tk.W)
+        self.location_var = tk.StringVar()
+        self.location_combo = ttk.Combobox(frame, textvariable=self.location_var, state="readonly", width=35)
+        self.location_combo.pack(fill=tk.X, pady=(5, 0))
+
+        # Display current delivery info
+        self.delivery_info_label = tk.Label(frame, text="",
+                                            font=("Consolas", 11, "bold"), bg=COLORS["card"], fg=COLORS["accent"])
+        self.delivery_info_label.pack(anchor=tk.W, pady=(10, 0))
+
+        # Update info when delivery code changes
+        self.delivery_combo.bind('<<ComboboxSelected>>', self._update_delivery_info)
+        self.location_combo.bind('<<ComboboxSelected>>', self._update_delivery_info)
+
+    def _update_delivery_info(self, event=None):
+        """Update delivery info display"""
+        delivery = self.delivery_var.get()
+        location = self.location_var.get()
+        if delivery and location:
+            loc_code = location.split(" - ")[0] if " - " in location else location
+            self.delivery_info_label.config(text=f"Code: {delivery} | Dest: {loc_code}")
 
     def _create_product_section(self, parent):
         """Create product selection section"""
         frame = tk.Frame(parent, bg=COLORS["card"], padx=20, pady=20)
-        frame.pack(fill=tk.X, pady=(0, 15))
+        frame.pack(fill=tk.BOTH, expand=True)
 
         tk.Label(frame, text="Add Product", font=("Segoe UI", 14, "bold"),
                 bg=COLORS["card"], fg=COLORS["text"]).pack(anchor=tk.W)
 
-        tk.Label(frame, text="Select product and quantity to add to carton",
+        tk.Label(frame, text="Select product and quantity to add to cart",
                 font=("Segoe UI", 9), bg=COLORS["card"], fg=COLORS["text_dim"]).pack(anchor=tk.W, pady=(2, 15))
 
         # Product dropdown
@@ -190,20 +267,6 @@ class BarcodeApp:
         self.product_combo = ttk.Combobox(frame, textvariable=self.product_var, state="readonly", width=35)
         self.product_combo.pack(fill=tk.X, pady=(5, 15))
 
-        # Location dropdown
-        tk.Label(frame, text="Destination", font=("Segoe UI", 10, "bold"),
-                bg=COLORS["card"], fg=COLORS["text"]).pack(anchor=tk.W)
-        self.location_var = tk.StringVar()
-        self.location_combo = ttk.Combobox(frame, textvariable=self.location_var, state="readonly", width=35)
-        self.location_combo.pack(fill=tk.X, pady=(5, 15))
-
-        # Packer dropdown
-        tk.Label(frame, text="Packer", font=("Segoe UI", 10, "bold"),
-                bg=COLORS["card"], fg=COLORS["text"]).pack(anchor=tk.W)
-        self.packer_var = tk.StringVar()
-        self.packer_combo = ttk.Combobox(frame, textvariable=self.packer_var, state="readonly", width=35)
-        self.packer_combo.pack(fill=tk.X, pady=(5, 15))
-
         # Quantity
         qty_frame = tk.Frame(frame, bg=COLORS["card"])
         qty_frame.pack(fill=tk.X, pady=(0, 15))
@@ -212,67 +275,72 @@ class BarcodeApp:
                 bg=COLORS["card"], fg=COLORS["text"]).pack(side=tk.LEFT)
 
         self.quantity_var = tk.StringVar(value="1")
-        qty_spin = ttk.Spinbox(qty_frame, from_=1, to=100, textvariable=self.quantity_var, width=8)
+        qty_spin = ttk.Spinbox(qty_frame, from_=1, to=1000, textvariable=self.quantity_var, width=8)
         qty_spin.pack(side=tk.RIGHT)
+
+        # Serial customization section
+        serial_frame = tk.Frame(frame, bg=COLORS["card"])
+        serial_frame.pack(fill=tk.X, pady=(0, 15))
+
+        tk.Label(serial_frame, text="Serial Range", font=("Segoe UI", 10, "bold"),
+                bg=COLORS["card"], fg=COLORS["text"]).pack(anchor=tk.W)
+
+        self.custom_serial_var = tk.BooleanVar(value=False)
+        custom_check = tk.Checkbutton(serial_frame, text="Custom starting serial",
+                                      variable=self.custom_serial_var,
+                                      bg=COLORS["card"], fg=COLORS["text"],
+                                      selectcolor=COLORS["input_bg"],
+                                      activebackground=COLORS["card"],
+                                      command=self._toggle_custom_serial)
+        custom_check.pack(anchor=tk.W, pady=(5, 5))
+
+        self.serial_start_frame = tk.Frame(serial_frame, bg=COLORS["card"])
+        self.serial_start_frame.pack(fill=tk.X)
+
+        tk.Label(self.serial_start_frame, text="Start from:",
+                bg=COLORS["card"], fg=COLORS["text_dim"]).pack(side=tk.LEFT)
+
+        self.serial_start_var = tk.StringVar(value="1")
+        self.serial_start_entry = tk.Entry(self.serial_start_frame, textvariable=self.serial_start_var,
+                                           bg=COLORS["input_bg"], fg=COLORS["text"],
+                                           insertbackground=COLORS["text"], border=0, width=10,
+                                           state="disabled")
+        self.serial_start_entry.pack(side=tk.LEFT, padx=(10, 0), ipady=5, ipadx=5)
+
+        # Serial preview
+        self.serial_preview_label = tk.Label(serial_frame, text="Serials: 0001 - 0001",
+                                             font=("Segoe UI", 9), bg=COLORS["card"], fg=COLORS["text_dim"])
+        self.serial_preview_label.pack(anchor=tk.W, pady=(5, 0))
+
+        # Update preview when quantity or serial changes
+        self.quantity_var.trace_add("write", self._update_serial_preview)
+        self.serial_start_var.trace_add("write", self._update_serial_preview)
 
         # Add to Cart button
         add_btn = tk.Button(frame, text="+ Add to Cart", font=("Segoe UI", 11, "bold"),
                            bg=COLORS["primary"], fg="white", activebackground=COLORS["primary_hover"],
                            activeforeground="white", border=0, padx=20, pady=12, cursor="hand2",
                            command=self._add_to_cart)
-        add_btn.pack(fill=tk.X, pady=(5, 0))
+        add_btn.pack(fill=tk.X, pady=(15, 0))
 
-    def _create_carton_section(self, parent):
-        """Create carton control section"""
-        frame = tk.Frame(parent, bg=COLORS["card"], padx=20, pady=20)
-        frame.pack(fill=tk.X)
+    def _toggle_custom_serial(self):
+        """Toggle custom serial entry"""
+        if self.custom_serial_var.get():
+            self.serial_start_entry.config(state="normal")
+        else:
+            self.serial_start_entry.config(state="disabled")
+            self.serial_start_var.set("1")
+        self._update_serial_preview()
 
-        # Header with checkbox
-        header_frame = tk.Frame(frame, bg=COLORS["card"])
-        header_frame.pack(fill=tk.X)
-
-        tk.Label(header_frame, text="Carton", font=("Segoe UI", 14, "bold"),
-                bg=COLORS["card"], fg=COLORS["text"]).pack(side=tk.LEFT)
-
-        # Enable/Disable checkbox
-        self.carton_enabled_var = tk.BooleanVar(value=True)
-        self.carton_checkbox = tk.Checkbutton(
-            header_frame, text="Enabled", variable=self.carton_enabled_var,
-            bg=COLORS["card"], fg=COLORS["text"], selectcolor=COLORS["input_bg"],
-            activebackground=COLORS["card"], activeforeground=COLORS["text"],
-            font=("Segoe UI", 9), command=self._toggle_carton_mode
-        )
-        self.carton_checkbox.pack(side=tk.RIGHT)
-
-        # Carton status
-        self.carton_status_frame = tk.Frame(frame, bg=COLORS["card"])
-        self.carton_status_frame.pack(fill=tk.X, pady=(10, 15))
-
-        self.carton_status_label = tk.Label(self.carton_status_frame, text="No active carton",
-                                            font=("Segoe UI", 10), bg=COLORS["card"], fg=COLORS["text_dim"])
-        self.carton_status_label.pack(anchor=tk.W)
-
-        self.carton_barcode_label = tk.Label(self.carton_status_frame, text="",
-                                             font=("Consolas", 11, "bold"), bg=COLORS["card"], fg=COLORS["accent"])
-        self.carton_barcode_label.pack(anchor=tk.W)
-
-        self.carton_count_label = tk.Label(self.carton_status_frame, text="",
-                                           font=("Segoe UI", 10), bg=COLORS["card"], fg=COLORS["primary"])
-        self.carton_count_label.pack(anchor=tk.W)
-
-        # Buttons
-        btn_frame = tk.Frame(frame, bg=COLORS["card"])
-        btn_frame.pack(fill=tk.X, pady=(5, 0))
-
-        new_btn = tk.Button(btn_frame, text="New Carton", font=("Segoe UI", 10),
-                           bg=COLORS["border"], fg=COLORS["text"], activebackground=COLORS["border"],
-                           border=0, padx=15, pady=8, cursor="hand2", command=self._create_new_carton)
-        new_btn.pack(side=tk.LEFT, padx=(0, 10))
-
-        close_btn = tk.Button(btn_frame, text="Close & Print", font=("Segoe UI", 10, "bold"),
-                             bg=COLORS["primary"], fg="white", activebackground=COLORS["primary_hover"],
-                             border=0, padx=15, pady=8, cursor="hand2", command=self._close_and_print_carton)
-        close_btn.pack(side=tk.LEFT)
+    def _update_serial_preview(self, *args):
+        """Update serial range preview"""
+        try:
+            qty = int(self.quantity_var.get())
+            start = int(self.serial_start_var.get()) if self.custom_serial_var.get() else 1
+            end = start + qty - 1
+            self.serial_preview_label.config(text=f"Serials: {start:04d} - {end:04d}")
+        except ValueError:
+            self.serial_preview_label.config(text="Serials: Invalid input")
 
     def _create_cart_tab(self):
         """Create cart/items tab"""
@@ -289,10 +357,15 @@ class BarcodeApp:
         btn_frame = tk.Frame(header, bg=COLORS["card"])
         btn_frame.pack(side=tk.RIGHT)
 
-        export_btn = tk.Button(btn_frame, text="Export CSV", font=("Segoe UI", 9),
+        export_csv_btn = tk.Button(btn_frame, text="Export CSV", font=("Segoe UI", 9),
                               bg=COLORS["accent"], fg="white", border=0, padx=12, pady=6,
-                              cursor="hand2", command=self._export_cart)
-        export_btn.pack(side=tk.LEFT, padx=(0, 10))
+                              cursor="hand2", command=self._export_cart_csv)
+        export_csv_btn.pack(side=tk.LEFT, padx=(0, 10))
+
+        export_pdf_btn = tk.Button(btn_frame, text="Export PDF", font=("Segoe UI", 9),
+                              bg=COLORS["warning"], fg="white", border=0, padx=12, pady=6,
+                              cursor="hand2", command=self._export_cart_pdf)
+        export_pdf_btn.pack(side=tk.LEFT, padx=(0, 10))
 
         clear_btn = tk.Button(btn_frame, text="Clear All", font=("Segoe UI", 9),
                              bg=COLORS["danger"], fg="white", border=0, padx=12, pady=6,
@@ -304,22 +377,30 @@ class BarcodeApp:
                              cursor="hand2", command=self._print_all_cart)
         print_btn.pack(side=tk.LEFT)
 
+        # Cart info
+        info_frame = tk.Frame(tab, bg=COLORS["card"], padx=15, pady=10)
+        info_frame.pack(fill=tk.X)
+
+        self.cart_info_label = tk.Label(info_frame, text="Delivery: -- | Destination: --",
+                                        font=("Segoe UI", 11, "bold"), bg=COLORS["card"], fg=COLORS["accent"])
+        self.cart_info_label.pack(side=tk.LEFT)
+
         # Cart list
         list_frame = tk.Frame(tab, bg=COLORS["bg"])
         list_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
 
-        columns = ("product", "destination", "packer", "qty")
+        columns = ("product", "serial_range", "qty", "barcode_preview")
         self.cart_tree = ttk.Treeview(list_frame, columns=columns, show="headings")
 
         self.cart_tree.heading("product", text="Product")
-        self.cart_tree.heading("destination", text="Destination")
-        self.cart_tree.heading("packer", text="Packer")
+        self.cart_tree.heading("serial_range", text="Serial Range")
         self.cart_tree.heading("qty", text="Qty")
+        self.cart_tree.heading("barcode_preview", text="Barcode Preview")
 
-        self.cart_tree.column("product", width=250)
-        self.cart_tree.column("destination", width=200)
-        self.cart_tree.column("packer", width=150)
+        self.cart_tree.column("product", width=200)
+        self.cart_tree.column("serial_range", width=120)
         self.cart_tree.column("qty", width=60)
+        self.cart_tree.column("barcode_preview", width=250)
 
         scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.cart_tree.yview)
         self.cart_tree.configure(yscrollcommand=scrollbar.set)
@@ -332,60 +413,6 @@ class BarcodeApp:
                               bg=COLORS["border"], fg=COLORS["text"], border=0, padx=15, pady=8,
                               cursor="hand2", command=self._remove_from_cart)
         remove_btn.pack(pady=(0, 15))
-
-    def _create_lookup_tab(self):
-        """Create carton lookup tab"""
-        tab = ttk.Frame(self.notebook)
-        self.notebook.add(tab, text="  Lookup Carton  ")
-
-        # Search
-        search_frame = tk.Frame(tab, bg=COLORS["card"], padx=20, pady=20)
-        search_frame.pack(fill=tk.X, padx=15, pady=15)
-
-        tk.Label(search_frame, text="Scan or Enter Carton Barcode", font=("Segoe UI", 12, "bold"),
-                bg=COLORS["card"], fg=COLORS["text"]).pack(anchor=tk.W)
-
-        input_frame = tk.Frame(search_frame, bg=COLORS["card"])
-        input_frame.pack(fill=tk.X, pady=(15, 0))
-
-        self.lookup_var = tk.StringVar()
-        lookup_entry = tk.Entry(input_frame, textvariable=self.lookup_var, font=("Consolas", 14),
-                               bg=COLORS["input_bg"], fg=COLORS["text"], insertbackground=COLORS["text"],
-                               border=0, width=30)
-        lookup_entry.pack(side=tk.LEFT, padx=(0, 10), ipady=10, ipadx=10)
-        lookup_entry.bind('<Return>', lambda e: self._lookup_carton())
-
-        lookup_btn = tk.Button(input_frame, text="Lookup", font=("Segoe UI", 10, "bold"),
-                              bg=COLORS["primary"], fg="white", border=0, padx=20, pady=10,
-                              cursor="hand2", command=self._lookup_carton)
-        lookup_btn.pack(side=tk.LEFT)
-
-        # Results
-        results_frame = tk.Frame(tab, bg=COLORS["bg"])
-        results_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 15))
-
-        # Info panel
-        info_frame = tk.Frame(results_frame, bg=COLORS["card"], padx=20, pady=15)
-        info_frame.pack(fill=tk.X, pady=(0, 15))
-
-        self.lookup_info = tk.Label(info_frame, text="Enter a carton barcode to see its contents",
-                                   font=("Segoe UI", 10), bg=COLORS["card"], fg=COLORS["text_dim"],
-                                   justify=tk.LEFT)
-        self.lookup_info.pack(anchor=tk.W)
-
-        # Contents
-        columns = ("code", "product", "qty")
-        self.lookup_tree = ttk.Treeview(results_frame, columns=columns, show="headings")
-
-        self.lookup_tree.heading("code", text="Code")
-        self.lookup_tree.heading("product", text="Product")
-        self.lookup_tree.heading("qty", text="Quantity")
-
-        self.lookup_tree.column("code", width=120)
-        self.lookup_tree.column("product", width=300)
-        self.lookup_tree.column("qty", width=100)
-
-        self.lookup_tree.pack(fill=tk.BOTH, expand=True)
 
     def _create_products_tab(self):
         """Create products management tab"""
@@ -489,57 +516,6 @@ class BarcodeApp:
         tk.Button(tab, text="Delete Selected", bg=COLORS["danger"], fg="white",
                  border=0, padx=15, pady=8, cursor="hand2", command=self._delete_location).pack(pady=(0, 15))
 
-    def _create_packers_tab(self):
-        """Create packers management tab"""
-        tab = ttk.Frame(self.notebook)
-        self.notebook.add(tab, text="  Packers  ")
-
-        # Add form
-        form_frame = tk.Frame(tab, bg=COLORS["card"], padx=20, pady=15)
-        form_frame.pack(fill=tk.X, padx=15, pady=15)
-
-        tk.Label(form_frame, text="Add Packer", font=("Segoe UI", 12, "bold"),
-                bg=COLORS["card"], fg=COLORS["text"]).grid(row=0, column=0, sticky=tk.W, columnspan=5)
-
-        tk.Label(form_frame, text="Code:", bg=COLORS["card"], fg=COLORS["text"]).grid(row=1, column=0, pady=10, padx=(0, 5))
-        self.new_packer_code = tk.Entry(form_frame, bg=COLORS["input_bg"], fg=COLORS["text"],
-                                       insertbackground=COLORS["text"], border=0, width=12)
-        self.new_packer_code.grid(row=1, column=1, pady=10, padx=(0, 15), ipady=5, ipadx=5)
-
-        tk.Label(form_frame, text="Name:", bg=COLORS["card"], fg=COLORS["text"]).grid(row=1, column=2, pady=10, padx=(0, 5))
-        self.new_packer_name = tk.Entry(form_frame, bg=COLORS["input_bg"], fg=COLORS["text"],
-                                       insertbackground=COLORS["text"], border=0, width=25)
-        self.new_packer_name.grid(row=1, column=3, pady=10, padx=(0, 15), ipady=5, ipadx=5)
-
-        add_btn = tk.Button(form_frame, text="Add", bg=COLORS["primary"], fg="white",
-                           border=0, padx=15, pady=5, cursor="hand2", command=self._add_packer)
-        add_btn.grid(row=1, column=4, pady=10)
-
-        # List
-        list_frame = tk.Frame(tab, bg=COLORS["bg"])
-        list_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 15))
-
-        columns = ("code", "name", "active", "created")
-        self.packers_tree = ttk.Treeview(list_frame, columns=columns, show="headings")
-
-        for col, width in [("code", 100), ("name", 200), ("active", 80), ("created", 150)]:
-            self.packers_tree.heading(col, text=col.title())
-            self.packers_tree.column(col, width=width)
-
-        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.packers_tree.yview)
-        self.packers_tree.configure(yscrollcommand=scrollbar.set)
-
-        self.packers_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        btn_frame = tk.Frame(tab, bg=COLORS["bg"])
-        btn_frame.pack(pady=(0, 15))
-
-        tk.Button(btn_frame, text="Toggle Active", bg=COLORS["border"], fg=COLORS["text"],
-                 border=0, padx=15, pady=8, cursor="hand2", command=self._toggle_packer).pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="Delete Selected", bg=COLORS["danger"], fg="white",
-                 border=0, padx=15, pady=8, cursor="hand2", command=self._delete_packer).pack(side=tk.LEFT, padx=5)
-
     def _create_history_tab(self):
         """Create history tab"""
         tab = ttk.Frame(self.notebook)
@@ -560,10 +536,10 @@ class BarcodeApp:
         list_frame = tk.Frame(tab, bg=COLORS["bg"])
         list_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 15))
 
-        columns = ("barcode", "product", "location", "packer", "qty", "created")
+        columns = ("barcode", "product", "location", "delivery", "qty", "created")
         self.history_tree = ttk.Treeview(list_frame, columns=columns, show="headings")
 
-        for col, width in [("barcode", 200), ("product", 150), ("location", 120), ("packer", 100), ("qty", 50), ("created", 140)]:
+        for col, width in [("barcode", 220), ("product", 150), ("location", 100), ("delivery", 80), ("qty", 50), ("created", 140)]:
             self.history_tree.heading(col, text=col.title())
             self.history_tree.column(col, width=width)
 
@@ -586,36 +562,62 @@ class BarcodeApp:
         if not self.location_var.get():
             messagebox.showwarning("Warning", "Please select a destination")
             return
-        if not self.packer_var.get():
-            messagebox.showwarning("Warning", "Please select a packer")
+        if not self.delivery_var.get():
+            messagebox.showwarning("Warning", "Please select a delivery code")
             return
 
         product = self._get_selected_product()
         location = self._get_selected_location()
-        packer = self._get_selected_packer()
-        qty = int(self.quantity_var.get())
+        delivery_code = self.delivery_var.get()
+
+        try:
+            qty = int(self.quantity_var.get())
+            start_serial = int(self.serial_start_var.get()) if self.custom_serial_var.get() else 1
+        except ValueError:
+            messagebox.showwarning("Warning", "Invalid quantity or serial number")
+            return
+
+        end_serial = start_serial + qty - 1
+
+        # Generate barcode preview
+        barcode_preview = f"{location['code']}-{product['code']}-{start_serial:04d}"
 
         item = {
             "product": product,
             "location": location,
-            "packer": packer,
-            "quantity": qty
+            "delivery_code": delivery_code,
+            "quantity": qty,
+            "start_serial": start_serial,
+            "end_serial": end_serial
         }
         self.cart_items.append(item)
         self._refresh_cart()
 
-        # Reset quantity
+        # Reset quantity and serial
         self.quantity_var.set("1")
+        self.serial_start_var.set("1")
+        self.custom_serial_var.set(False)
+        self._toggle_custom_serial()
 
     def _refresh_cart(self):
         """Refresh cart display"""
         self.cart_tree.delete(*self.cart_tree.get_children())
+
+        delivery_code = self.delivery_var.get()
+        location = self.location_var.get()
+        loc_code = location.split(" - ")[0] if location and " - " in location else "--"
+
+        self.cart_info_label.config(text=f"Delivery: {delivery_code} | Destination: {loc_code}")
+
         for i, item in enumerate(self.cart_items):
+            serial_range = f"{item['start_serial']:04d} - {item['end_serial']:04d}"
+            barcode_preview = f"{item['location']['code']}-{item['product']['code']}-{item['start_serial']:04d}"
+
             self.cart_tree.insert("", tk.END, values=(
                 f"{item['product']['code']} - {item['product']['name']}",
-                item['location']['name'],
-                item['packer']['name'],
-                item['quantity']
+                serial_range,
+                item['quantity'],
+                barcode_preview
             ), tags=(str(i),))
 
     def _remove_from_cart(self):
@@ -636,7 +638,7 @@ class BarcodeApp:
             self.cart_items = []
             self._refresh_cart()
 
-    def _export_cart(self):
+    def _export_cart_csv(self):
         """Export cart items to CSV"""
         if not self.cart_items:
             messagebox.showwarning("Warning", "Cart is empty")
@@ -649,207 +651,179 @@ class BarcodeApp:
         )
 
         if filename:
+            delivery_code = self.delivery_var.get()
+
             with open(filename, 'w') as f:
-                f.write("Product Code,Product Name,Destination,Packer,Quantity\n")
+                f.write("Barcode,Product Code,Product Name,Destination,Delivery Code,Serial\n")
                 for item in self.cart_items:
-                    f.write(f"{item['product']['code']},{item['product']['name']},"
-                           f"{item['location']['name']},{item['packer']['name']},{item['quantity']}\n")
+                    for serial in range(item['start_serial'], item['end_serial'] + 1):
+                        barcode = f"{item['location']['code']}-{item['product']['code']}-{serial:04d}"
+                        f.write(f"{barcode},{item['product']['code']},{item['product']['name']},"
+                               f"{item['location']['name']},{delivery_code},{serial:04d}\n")
             messagebox.showinfo("Success", f"Cart exported to:\n{filename}")
 
-    def _toggle_carton_mode(self):
-        """Toggle carton mode on/off"""
-        if self.carton_enabled_var.get():
-            self.carton_status_frame.pack(fill=tk.X, pady=(10, 15))
-            self._update_carton_display()
-        else:
-            # Disable carton mode
-            if self.current_carton:
-                if messagebox.askyesno("Close Carton?",
-                    "Disabling carton mode will close the current carton.\nContinue?"):
-                    db.close_carton(self.current_carton['id'])
-                    self.current_carton = None
-                else:
-                    self.carton_enabled_var.set(True)
-                    return
-            self.carton_status_label.config(text="Carton mode disabled", fg=COLORS["text_dim"])
-            self.carton_barcode_label.config(text="Products will print without carton tracking")
-            self.carton_count_label.config(text="")
-
-    def _print_all_cart(self):
-        """Print all items in cart and optionally add to carton"""
+    def _export_cart_pdf(self):
+        """Export cart items to PDF"""
         if not self.cart_items:
             messagebox.showwarning("Warning", "Cart is empty")
             return
 
-        carton_mode = self.carton_enabled_var.get()
+        if not REPORTLAB_AVAILABLE:
+            messagebox.showerror("Error", "PDF export requires reportlab library.\n\nInstall with: pip install reportlab")
+            return
 
-        # Create carton if enabled and none exists
-        if carton_mode and not self.current_carton:
-            first_item = self.cart_items[0]
-            carton_id, barcode = db.create_carton(
-                first_item['location']['id'],
-                first_item['packer']['id'],
-                ""
-            )
-            self.current_carton = db.get_carton_by_id(carton_id)
-            self._update_carton_display()
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("PDF Files", "*.pdf"), ("All Files", "*.*")],
+            initialfilename=f"cart_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        )
 
+        if filename:
+            self._generate_pdf(filename)
+            messagebox.showinfo("Success", f"Cart exported to PDF:\n{filename}")
+
+    def _generate_pdf(self, filename):
+        """Generate PDF from cart items"""
+        doc = SimpleDocTemplate(filename, pagesize=A4,
+                               rightMargin=30, leftMargin=30,
+                               topMargin=30, bottomMargin=30)
+
+        elements = []
+        styles = getSampleStyleSheet()
+
+        # Title style
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=18,
+            spaceAfter=20,
+            alignment=1  # Center
+        )
+
+        # Header info
+        delivery_code = self.delivery_var.get()
+        location = self._get_selected_location()
+        loc_name = location['name'] if location else "--"
+
+        # Title
+        elements.append(Paragraph("Cart Export", title_style))
+        elements.append(Spacer(1, 10))
+
+        # Info section
+        info_style = ParagraphStyle(
+            'Info',
+            parent=styles['Normal'],
+            fontSize=12,
+            spaceAfter=5
+        )
+
+        elements.append(Paragraph(f"<b>Date:</b> {datetime.now().strftime('%Y-%m-%d %H:%M')}", info_style))
+        elements.append(Paragraph(f"<b>Delivery Code:</b> {delivery_code}", info_style))
+        elements.append(Paragraph(f"<b>Destination:</b> {loc_name}", info_style))
+        elements.append(Spacer(1, 20))
+
+        # Build table data
+        table_data = [['#', 'Barcode', 'Product', 'Destination', 'Serial']]
+
+        row_num = 1
+        for item in self.cart_items:
+            for serial in range(item['start_serial'], item['end_serial'] + 1):
+                barcode = f"{item['location']['code']}-{item['product']['code']}-{serial:04d}"
+                table_data.append([
+                    str(row_num),
+                    barcode,
+                    item['product']['name'],
+                    item['location']['name'],
+                    f"{serial:04d}"
+                ])
+                row_num += 1
+
+        # Create table
+        table = Table(table_data, colWidths=[30, 180, 150, 100, 60])
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#238636')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 11),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f0f0f0')),
+            ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 1), (-1, -1), 9),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f5f5f5')]),
+        ]))
+
+        elements.append(table)
+
+        # Summary
+        elements.append(Spacer(1, 20))
+        total_items = sum(item['quantity'] for item in self.cart_items)
+        summary_style = ParagraphStyle(
+            'Summary',
+            parent=styles['Normal'],
+            fontSize=12,
+            spaceAfter=5
+        )
+        elements.append(Paragraph(f"<b>Total Items:</b> {total_items}", summary_style))
+        elements.append(Paragraph(f"<b>Total Products:</b> {len(self.cart_items)}", summary_style))
+
+        # Build PDF
+        doc.build(elements)
+
+    def _print_all_cart(self):
+        """Print all items in cart"""
+        if not self.cart_items:
+            messagebox.showwarning("Warning", "Cart is empty")
+            return
+
+        if not self.delivery_var.get():
+            messagebox.showwarning("Warning", "Please select a delivery code")
+            return
+
+        delivery_code = self.delivery_var.get()
         success_count = 0
         fail_count = 0
 
         for item in self.cart_items:
-            # Generate barcode
-            barcode_data = self.barcode_gen.generate_barcode_data(
-                item['location']['code'],
-                item['product']['code'],
-                item['packer']['code']
-            )
+            for serial in range(item['start_serial'], item['end_serial'] + 1):
+                # Generate barcode: LOCATION-PRODUCT-SERIAL
+                barcode_data = f"{item['location']['code']}-{item['product']['code']}-{serial:04d}"
 
-            # Print label
-            success, _ = self.printer.print_label(
-                barcode_data,
-                item['product']['name'],
-                item['location']['name'],
-                item['packer']['name'],
-                False,  # Code128
-                item['quantity']
-            )
-
-            if success:
-                # Save to history
-                db.save_barcode_history(
+                # Print label (delivery code shown where packer was)
+                success, _ = self.printer.print_label(
                     barcode_data,
-                    item['product']['id'],
-                    item['location']['id'],
-                    item['packer']['id'],
-                    item['quantity']
+                    item['product']['name'],
+                    item['location']['name'],
+                    delivery_code,  # Delivery code instead of packer
+                    False,  # Code128
+                    1  # 1 copy per serial
                 )
 
-                # Add to carton only if carton mode enabled
-                if carton_mode and self.current_carton:
-                    db.add_product_to_carton(
-                        self.current_carton['id'],
+                if success:
+                    # Save to history
+                    db.save_barcode_history(
+                        barcode_data,
                         item['product']['id'],
-                        item['quantity'],
-                        barcode_data
+                        item['location']['id'],
+                        delivery_code,
+                        1
                     )
-                success_count += 1
-            else:
-                fail_count += 1
+                    success_count += 1
+                else:
+                    fail_count += 1
 
         # Clear cart and refresh
         self.cart_items = []
         self._refresh_cart()
-        if carton_mode:
-            self._update_carton_display()
         self._refresh_history()
 
         if fail_count == 0:
-            if carton_mode:
-                messagebox.showinfo("Success", f"Printed {success_count} labels and added to carton")
-            else:
-                messagebox.showinfo("Success", f"Printed {success_count} labels")
+            messagebox.showinfo("Success", f"Printed {success_count} labels")
         else:
             messagebox.showwarning("Partial Success", f"Printed {success_count} labels, {fail_count} failed")
-
-    # ==================== CARTON FUNCTIONS ====================
-
-    def _create_new_carton(self):
-        """Create a new carton"""
-        if not self.carton_enabled_var.get():
-            messagebox.showwarning("Warning", "Carton mode is disabled. Enable it first.")
-            return
-
-        if not self.location_var.get() or not self.packer_var.get():
-            messagebox.showwarning("Warning", "Please select destination and packer first")
-            return
-
-        location = self._get_selected_location()
-        packer = self._get_selected_packer()
-
-        try:
-            carton_id, barcode = db.create_carton(location['id'], packer['id'], "")
-            self.current_carton = db.get_carton_by_id(carton_id)
-            self._update_carton_display()
-            messagebox.showinfo("Success", f"Carton created: {barcode}")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to create carton: {e}")
-
-    def _update_carton_display(self):
-        """Update carton status display"""
-        if self.current_carton:
-            self.carton_status_label.config(text="Active carton:", fg=COLORS["text"])
-            self.carton_barcode_label.config(text=self.current_carton['barcode'])
-
-            contents = db.get_carton_contents(self.current_carton['id'])
-            total_qty = sum(c['quantity'] for c in contents)
-            self.carton_count_label.config(text=f"{len(contents)} items, {total_qty} total")
-        else:
-            self.carton_status_label.config(text="No active carton", fg=COLORS["text_dim"])
-            self.carton_barcode_label.config(text="")
-            self.carton_count_label.config(text="")
-
-    def _close_and_print_carton(self):
-        """Close carton and print label"""
-        if not self.current_carton:
-            messagebox.showwarning("Warning", "No active carton")
-            return
-
-        contents = db.get_carton_contents(self.current_carton['id'])
-        if not contents:
-            if not messagebox.askyesno("Empty Carton", "Carton is empty. Close anyway?"):
-                return
-
-        db.close_carton(self.current_carton['id'])
-
-        # Print carton label
-        summary = db.get_carton_summary(self.current_carton['id'])
-        summary_text = ", ".join([f"{s['product_code']}x{int(s['total_quantity'])}" for s in summary])
-
-        success, msg = self.printer.print_label(
-            self.current_carton['barcode'],
-            f"CARTON: {summary_text[:25]}",
-            self.current_carton['location_name'],
-            self.current_carton['packer_name'],
-            True,  # QR code
-            1
-        )
-
-        barcode = self.current_carton['barcode']
-        self.current_carton = None
-        self._update_carton_display()
-
-        if success:
-            messagebox.showinfo("Success", f"Carton closed and printed\n\n{barcode}")
-        else:
-            messagebox.showwarning("Print Failed", f"Carton closed but print failed\n\n{barcode}")
-
-    # ==================== LOOKUP FUNCTIONS ====================
-
-    def _lookup_carton(self):
-        """Lookup carton by barcode"""
-        barcode = self.lookup_var.get().strip()
-        if not barcode:
-            messagebox.showwarning("Warning", "Enter a barcode")
-            return
-
-        carton = db.lookup_carton_by_barcode(barcode)
-        if not carton:
-            self.lookup_info.config(text=f"No carton found: {barcode}", fg=COLORS["danger"])
-            self.lookup_tree.delete(*self.lookup_tree.get_children())
-            return
-
-        status = "OPEN" if carton['status'] == 'open' else "CLOSED"
-        info = f"Barcode: {carton['barcode']}   |   Status: {status}   |   Destination: {carton['location_name']}   |   Packer: {carton['packer_name']}"
-        self.lookup_info.config(text=info, fg=COLORS["text"])
-
-        self.lookup_tree.delete(*self.lookup_tree.get_children())
-        for s in carton['summary']:
-            self.lookup_tree.insert("", tk.END, values=(
-                s['product_code'],
-                s['product_name'],
-                int(s['total_quantity'])
-            ))
 
     # ==================== HELPER FUNCTIONS ====================
 
@@ -865,13 +839,6 @@ class BarcodeApp:
         for l in db.get_all_locations():
             if l['code'] == code:
                 return dict(l)
-        return None
-
-    def _get_selected_packer(self):
-        code = self.packer_var.get().split(" - ")[0]
-        for p in db.get_all_packers():
-            if p['code'] == code:
-                return dict(p)
         return None
 
     # ==================== CRUD FUNCTIONS ====================
@@ -936,45 +903,6 @@ class BarcodeApp:
                     break
             self._refresh_locations()
 
-    def _add_packer(self):
-        code = self.new_packer_code.get().strip()
-        name = self.new_packer_name.get().strip()
-
-        if not code or not name:
-            messagebox.showwarning("Warning", "Code and Name required")
-            return
-
-        try:
-            db.add_packer(code, name)
-            self._refresh_packers()
-            self.new_packer_code.delete(0, tk.END)
-            self.new_packer_name.delete(0, tk.END)
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
-
-    def _toggle_packer(self):
-        selection = self.packers_tree.selection()
-        if not selection:
-            return
-        code = self.packers_tree.item(selection[0])['values'][0]
-        for p in db.get_all_packers(active_only=False):
-            if p['code'] == code:
-                db.toggle_packer_active(p['id'])
-                break
-        self._refresh_packers()
-
-    def _delete_packer(self):
-        selection = self.packers_tree.selection()
-        if not selection:
-            return
-        if messagebox.askyesno("Confirm", "Delete packer?"):
-            code = self.packers_tree.item(selection[0])['values'][0]
-            for p in db.get_all_packers(active_only=False):
-                if p['code'] == code:
-                    db.delete_packer(p['id'])
-                    break
-            self._refresh_packers()
-
     # ==================== REFRESH FUNCTIONS ====================
 
     def _refresh_combos(self):
@@ -983,9 +911,6 @@ class BarcodeApp:
 
         locations = db.get_all_locations()
         self.location_combo['values'] = [f"{l['code']} - {l['name']}" for l in locations]
-
-        packers = db.get_all_packers(active_only=True)
-        self.packer_combo['values'] = [f"{p['code']} - {p['name']}" for p in packers]
 
     def _refresh_products(self):
         self.products_tree.delete(*self.products_tree.get_children())
@@ -1003,33 +928,26 @@ class BarcodeApp:
             ))
         self._refresh_combos()
 
-    def _refresh_packers(self):
-        self.packers_tree.delete(*self.packers_tree.get_children())
-        for p in db.get_all_packers(active_only=False):
-            self.packers_tree.insert("", tk.END, values=(
-                p['code'], p['name'], "Yes" if p['active'] else "No", p['created_at']
-            ))
-        self._refresh_combos()
-
     def _refresh_history(self):
-        stats = db.get_daily_stats()
+        stats = db.get_location_stats()
         if stats:
-            text = " | ".join([f"{s['packer_name']}: {int(s['total_items'])} items" for s in stats])
+            text = " | ".join([f"{s['location_name']}: {int(s['total_items'])} items" for s in stats])
         else:
             text = "No labels printed today"
         self.stats_label.config(text=text)
 
         self.history_tree.delete(*self.history_tree.get_children())
         for h in db.get_barcode_history():
+            # delivery_code is stored in packer_name field for now
+            delivery = h.get('packer_name') or h.get('delivery_code') or "-"
             self.history_tree.insert("", tk.END, values=(
                 h['barcode_data'], h['product_name'] or "-", h['location_name'] or "-",
-                h['packer_name'] or "-", h['quantity'], h['created_at']
+                delivery, h['quantity'], h['created_at']
             ))
 
     def _refresh_all_data(self):
         self._refresh_products()
         self._refresh_locations()
-        self._refresh_packers()
         self._refresh_history()
 
     # ==================== DIALOGS ====================
@@ -1040,10 +958,11 @@ class BarcodeApp:
         if filename:
             history = db.get_barcode_history(limit=10000)
             with open(filename, 'w') as f:
-                f.write("Barcode,Product,Location,Packer,Qty,Created\n")
+                f.write("Barcode,Product,Location,Delivery,Qty,Created\n")
                 for h in history:
+                    delivery = h.get('packer_name') or h.get('delivery_code') or "-"
                     f.write(f"{h['barcode_data']},{h['product_name']},{h['location_name']},"
-                           f"{h['packer_name']},{h['quantity']},{h['created_at']}\n")
+                           f"{delivery},{h['quantity']},{h['created_at']}\n")
             messagebox.showinfo("Success", f"Exported to {filename}")
 
     def _show_printer_setup(self):
@@ -1076,12 +995,13 @@ class BarcodeApp:
 
     def _show_about(self):
         messagebox.showinfo("About",
-            "Barcode Generator v2.1\n\n"
+            "Barcode Generator v3.0\n\n"
             "Features:\n"
-            "- Multi-product cart system\n"
-            "- Automatic carton tracking\n"
-            "- Batch printing\n"
-            "- TSC TE200 support")
+            "- Serial-based barcode generation\n"
+            "- Delivery code assignment\n"
+            "- PDF and CSV export\n"
+            "- TSC TE200 support\n\n"
+            "Format: LOCATION-PRODUCT-SERIAL")
 
 
 def main():

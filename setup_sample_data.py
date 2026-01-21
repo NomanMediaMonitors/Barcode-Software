@@ -1,6 +1,6 @@
 """
 Setup script to initialize sample data for the Barcode Software
-Run this once to populate your database with sample products, locations, and packers
+Run this once to populate your database with sample products and locations
 
 Requires MySQL server running at 172.168.100.215
 """
@@ -35,11 +35,16 @@ def setup_sample_data():
 
     print("\nSetting up sample data...")
 
-    # ============== PRODUCTS (3 items) ==============
+    # ============== PRODUCTS ==============
+    # Format: (code, name, description)
     products = [
-        ("BAG01", "Leather Bag Type A", "Premium leather handbag"),
-        ("BAG02", "Canvas Bag Type B", "Durable canvas tote bag"),
-        ("WAL01", "Leather Wallet", "Genuine leather wallet"),
+        ("WALT BLCK", "WALLET BLACK", "Premium black leather wallet"),
+        ("WALT BRWN", "WALLET BROWN", "Premium brown leather wallet"),
+        ("WALT TAN", "WALLET TAN", "Premium tan leather wallet"),
+        ("4PCS BLCK", "4PC SET BLACK", "4-piece luggage set in black"),
+        ("4PCS BRWN", "4PC SET BROWN", "4-piece luggage set in brown"),
+        ("4PCS TAN", "4PC SET TAN", "4-piece luggage set in tan"),
+        ("LAPB NVYB", "LAPTOP BAG NAVY BLUE", "Navy blue laptop bag"),
     ]
 
     print("\nAdding products...")
@@ -51,38 +56,22 @@ def setup_sample_data():
             print(f"  Skipped: {code} (already exists)")
 
     # ============== LOCATIONS (8 destinations) ==============
+    # Format: (city_code, city_name, address)
     locations = [
-        ("LOC01", "New York Warehouse", "123 Main St, New York, NY 10001"),
-        ("LOC02", "Los Angeles Hub", "456 West Blvd, Los Angeles, CA 90001"),
-        ("LOC03", "Chicago Distribution", "789 North Ave, Chicago, IL 60601"),
-        ("LOC04", "Houston Facility", "321 South St, Houston, TX 77001"),
-        ("LOC05", "Miami Center", "654 Beach Rd, Miami, FL 33101"),
-        ("LOC06", "Seattle Store", "987 Pine St, Seattle, WA 98101"),
-        ("LOC07", "Boston Branch", "147 Harbor Way, Boston, MA 02101"),
-        ("LOC08", "Denver Depot", "258 Mountain Rd, Denver, CO 80201"),
+        ("ISB", "Islamabad", "Islamabad, Pakistan"),
+        ("SAR", "Sargodha", "Sargodha, Pakistan"),
+        ("HYD", "Hyderabad", "Hyderabad, Pakistan"),
+        ("HOK", "H.O.Karachi", "Head Office Karachi, Pakistan"),
+        ("JEH", "Jehlum", "Jehlum, Pakistan"),
+        ("KAR", "Karachi", "Karachi, Pakistan"),
+        ("LHR", "Lahore", "Lahore, Pakistan"),
+        ("MUL", "Multan", "Multan, Pakistan"),
     ]
 
     print("\nAdding locations...")
     for code, name, addr in locations:
         try:
             db.add_location(code, name, addr)
-            print(f"  Added: {code} - {name}")
-        except Exception as e:
-            print(f"  Skipped: {code} (already exists)")
-
-    # ============== PACKERS ==============
-    packers = [
-        ("PKR01", "John Smith"),
-        ("PKR02", "Jane Doe"),
-        ("PKR03", "Mike Johnson"),
-        ("PKR04", "Sarah Williams"),
-        ("PKR05", "David Brown"),
-    ]
-
-    print("\nAdding packers...")
-    for code, name in packers:
-        try:
-            db.add_packer(code, name)
             print(f"  Added: {code} - {name}")
         except Exception as e:
             print(f"  Skipped: {code} (already exists)")
@@ -95,7 +84,10 @@ def setup_sample_data():
     print(f"\nSummary:")
     print(f"  Products:  {len(db.get_all_products())}")
     print(f"  Locations: {len(db.get_all_locations())}")
-    print(f"  Packers:   {len(db.get_all_packers())}")
+
+    print("\nDelivery Codes available: 1A, 1B, 1C, 2A, 2B, 2C, 3A, 3B")
+    print("\nBarcode format: LOCATION-PRODUCT-SERIAL")
+    print("Example: ISB-WALT BLCK-0001")
 
     print("\nYou can now run the application with: python app.py")
 
