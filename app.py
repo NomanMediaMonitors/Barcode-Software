@@ -654,7 +654,7 @@ class BarcodeApp:
             messagebox.showinfo("Success", f"Cart exported to PDF:\n{filename}")
 
     def _generate_pdf(self, filename):
-        """Generate PDF from cart items"""
+        """Generate PDF from cart items - designed as a packing slip for carton"""
         doc = SimpleDocTemplate(filename, pagesize=A4,
                                rightMargin=30, leftMargin=30,
                                topMargin=30, bottomMargin=30)
@@ -662,39 +662,134 @@ class BarcodeApp:
         elements = []
         styles = getSampleStyleSheet()
 
-        # Title style
-        title_style = ParagraphStyle(
-            'CustomTitle',
-            parent=styles['Heading1'],
-            fontSize=18,
-            spaceAfter=20,
-            alignment=1  # Center
-        )
-
-        # Header info
+        # Get delivery info
         delivery_code = self.delivery_var.get()
         location = self._get_selected_location()
         loc_name = location['name'] if location else "--"
+        loc_code = location['code'] if location else "--"
 
-        # Title
-        elements.append(Paragraph("Cart Export", title_style))
-        elements.append(Spacer(1, 10))
+        # Title style - Destination name as main header
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=24,
+            spaceAfter=5,
+            alignment=1  # Center
+        )
 
-        # Info section
+        # Subtitle style
+        subtitle_style = ParagraphStyle(
+            'Subtitle',
+            parent=styles['Normal'],
+            fontSize=14,
+            spaceAfter=20,
+            alignment=1,
+            textColor=colors.HexColor('#666666')
+        )
+
+        # Section header style
+        section_style = ParagraphStyle(
+            'Section',
+            parent=styles['Heading2'],
+            fontSize=14,
+            spaceBefore=15,
+            spaceAfter=10,
+            textColor=colors.HexColor('#238636')
+        )
+
+        # Info style
         info_style = ParagraphStyle(
             'Info',
             parent=styles['Normal'],
-            fontSize=12,
-            spaceAfter=5
+            fontSize=11,
+            spaceAfter=3
         )
 
+        # Large info style for prominent display
+        large_info_style = ParagraphStyle(
+            'LargeInfo',
+            parent=styles['Normal'],
+            fontSize=16,
+            spaceBefore=5,
+            spaceAfter=5,
+            alignment=1
+        )
+
+        # Destination as main title
+        elements.append(Paragraph(f"{loc_name}", title_style))
+        elements.append(Paragraph(f"Delivery Code: {delivery_code}", subtitle_style))
+
+        # Date
         elements.append(Paragraph(f"<b>Date:</b> {datetime.now().strftime('%Y-%m-%d %H:%M')}", info_style))
-        elements.append(Paragraph(f"<b>Delivery Code:</b> {delivery_code}", info_style))
-        elements.append(Paragraph(f"<b>Destination:</b> {loc_name}", info_style))
+        elements.append(Spacer(1, 15))
+
+        # Calculate totals
+        total_items = sum(item['quantity'] for item in self.cart_items)
+
+        # Summary box
+        summary_data = [
+            ['Total Items', str(total_items)],
+            ['Delivery Code', delivery_code],
+            ['Destination Code', loc_code],
+        ]
+        summary_table = Table(summary_data, colWidths=[120, 100])
+        summary_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#f0f0f0')),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+            ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 12),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#cccccc')),
+            ('PADDING', (0, 0), (-1, -1), 8),
+        ]))
+        elements.append(summary_table)
         elements.append(Spacer(1, 20))
 
-        # Build table data
-        table_data = [['#', 'Barcode', 'Product', 'Destination', 'Serial']]
+        # Products section
+        elements.append(Paragraph("Products", section_style))
+
+        # Group items by product for summary
+        for item in self.cart_items:
+            product_name = item['product']['name']
+            product_code = item['product']['code']
+            qty = item['quantity']
+            start_serial = item['start_serial']
+            end_serial = item['end_serial']
+
+            # Product header
+            product_header = ParagraphStyle(
+                'ProductHeader',
+                parent=styles['Normal'],
+                fontSize=12,
+                spaceBefore=10,
+                spaceAfter=5
+            )
+            elements.append(Paragraph(
+                f"<b>{product_name}</b> ({product_code}) - Qty: {qty}",
+                product_header
+            ))
+
+            # Serial range
+            serial_style = ParagraphStyle(
+                'Serial',
+                parent=styles['Normal'],
+                fontSize=10,
+                textColor=colors.HexColor('#666666'),
+                leftIndent=20
+            )
+            elements.append(Paragraph(
+                f"Serials: {start_serial:04d} - {end_serial:04d}",
+                serial_style
+            ))
+
+        elements.append(Spacer(1, 20))
+
+        # Detailed barcode list
+        elements.append(Paragraph("Barcode Details", section_style))
+
+        # Build table data - no destination column
+        table_data = [['#', 'Barcode', 'Product', 'Serial']]
 
         row_num = 1
         for item in self.cart_items:
@@ -704,48 +799,35 @@ class BarcodeApp:
                     str(row_num),
                     barcode,
                     item['product']['name'],
-                    item['location']['name'],
                     f"{serial:04d}"
                 ])
                 row_num += 1
 
         # Create table
-        table = Table(table_data, colWidths=[30, 180, 150, 100, 60])
+        table = Table(table_data, colWidths=[30, 200, 180, 60])
         table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#238636')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 11),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f0f0f0')),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+            ('TOPPADDING', (0, 0), (-1, 0), 10),
             ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
             ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
             ('FONTSIZE', (0, 1), (-1, -1), 9),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f5f5f5')]),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cccccc')),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9f9f9')]),
+            ('PADDING', (0, 1), (-1, -1), 6),
         ]))
 
         elements.append(table)
-
-        # Summary
-        elements.append(Spacer(1, 20))
-        total_items = sum(item['quantity'] for item in self.cart_items)
-        summary_style = ParagraphStyle(
-            'Summary',
-            parent=styles['Normal'],
-            fontSize=12,
-            spaceAfter=5
-        )
-        elements.append(Paragraph(f"<b>Total Items:</b> {total_items}", summary_style))
-        elements.append(Paragraph(f"<b>Total Products:</b> {len(self.cart_items)}", summary_style))
 
         # Build PDF
         doc.build(elements)
 
     def _print_all_cart(self):
-        """Print all items in cart"""
+        """Print all items in cart - prints 2 different stickers per pass to save sticker paper"""
         if not self.cart_items:
             messagebox.showwarning("Warning", "Cart is empty")
             return
@@ -758,33 +840,64 @@ class BarcodeApp:
         success_count = 0
         fail_count = 0
 
+        # Collect all barcodes to print
+        all_barcodes = []
         for item in self.cart_items:
             for serial in range(item['start_serial'], item['end_serial'] + 1):
-                # Generate barcode: LOCATION-PRODUCT-SERIAL
                 barcode_data = f"{item['location']['code']}-{item['product']['code']}-{serial:04d}"
+                all_barcodes.append({
+                    'barcode': barcode_data,
+                    'product_name': item['product']['name'],
+                    'location_name': item['location']['name'],
+                    'product_id': item['product']['id'],
+                    'location_id': item['location']['id']
+                })
 
-                # Print label (delivery code shown where packer was)
-                success, _ = self.printer.print_label(
-                    barcode_data,
-                    item['product']['name'],
-                    item['location']['name'],
-                    delivery_code,  # Delivery code instead of packer
-                    False,  # Code128
-                    1  # 1 copy per serial
+        # Print in pairs (2 different stickers per pass)
+        i = 0
+        while i < len(all_barcodes):
+            left_item = all_barcodes[i]
+            right_item = all_barcodes[i + 1] if i + 1 < len(all_barcodes) else None
+
+            # Print label with 2 different barcodes (or just 1 if odd number)
+            success, _ = self.printer.print_label(
+                left_item['barcode'],
+                left_item['product_name'],
+                left_item['location_name'],
+                delivery_code,
+                False,  # Code128
+                1,
+                right_item['barcode'] if right_item else None
+            )
+
+            if success:
+                # Save left barcode to history
+                db.save_barcode_history(
+                    left_item['barcode'],
+                    left_item['product_id'],
+                    left_item['location_id'],
+                    delivery_code,
+                    1
                 )
+                success_count += 1
 
-                if success:
-                    # Save to history
+                # Save right barcode to history if exists
+                if right_item:
                     db.save_barcode_history(
-                        barcode_data,
-                        item['product']['id'],
-                        item['location']['id'],
+                        right_item['barcode'],
+                        right_item['product_id'],
+                        right_item['location_id'],
                         delivery_code,
                         1
                     )
                     success_count += 1
-                else:
+            else:
+                fail_count += 1
+                if right_item:
                     fail_count += 1
+
+            # Move to next pair
+            i += 2
 
         # Clear cart and refresh
         self.cart_items = []
