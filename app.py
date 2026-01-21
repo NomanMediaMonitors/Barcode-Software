@@ -357,11 +357,6 @@ class BarcodeApp:
         btn_frame = tk.Frame(header, bg=COLORS["card"])
         btn_frame.pack(side=tk.RIGHT)
 
-        export_csv_btn = tk.Button(btn_frame, text="Export CSV", font=("Segoe UI", 9),
-                              bg=COLORS["accent"], fg="white", border=0, padx=12, pady=6,
-                              cursor="hand2", command=self._export_cart_csv)
-        export_csv_btn.pack(side=tk.LEFT, padx=(0, 10))
-
         export_pdf_btn = tk.Button(btn_frame, text="Export PDF", font=("Segoe UI", 9),
                               bg=COLORS["warning"], fg="white", border=0, padx=12, pady=6,
                               cursor="hand2", command=self._export_cart_pdf)
@@ -638,30 +633,6 @@ class BarcodeApp:
             self.cart_items = []
             self._refresh_cart()
 
-    def _export_cart_csv(self):
-        """Export cart items to CSV"""
-        if not self.cart_items:
-            messagebox.showwarning("Warning", "Cart is empty")
-            return
-
-        filename = filedialog.asksaveasfilename(
-            defaultextension=".csv",
-            filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")],
-            initialfilename=f"cart_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        )
-
-        if filename:
-            delivery_code = self.delivery_var.get()
-
-            with open(filename, 'w') as f:
-                f.write("Barcode,Product Code,Product Name,Destination,Delivery Code,Serial\n")
-                for item in self.cart_items:
-                    for serial in range(item['start_serial'], item['end_serial'] + 1):
-                        barcode = f"{item['location']['code']}-{item['product']['code']}-{serial:04d}"
-                        f.write(f"{barcode},{item['product']['code']},{item['product']['name']},"
-                               f"{item['location']['name']},{delivery_code},{serial:04d}\n")
-            messagebox.showinfo("Success", f"Cart exported to:\n{filename}")
-
     def _export_cart_pdf(self):
         """Export cart items to PDF"""
         if not self.cart_items:
@@ -675,7 +646,7 @@ class BarcodeApp:
         filename = filedialog.asksaveasfilename(
             defaultextension=".pdf",
             filetypes=[("PDF Files", "*.pdf"), ("All Files", "*.*")],
-            initialfilename=f"cart_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+            initialfile=f"cart_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
         )
 
         if filename:
