@@ -783,46 +783,6 @@ class BarcodeApp:
                 serial_style
             ))
 
-        elements.append(Spacer(1, 20))
-
-        # Detailed barcode list
-        elements.append(Paragraph("Barcode Details", section_style))
-
-        # Build table data - no destination column
-        table_data = [['#', 'Barcode', 'Product', 'Serial']]
-
-        row_num = 1
-        for item in self.cart_items:
-            for serial in range(item['start_serial'], item['end_serial'] + 1):
-                barcode = f"{item['location']['code']}-{item['product']['code']}-{serial:04d}"
-                table_data.append([
-                    str(row_num),
-                    barcode,
-                    item['product']['name'],
-                    f"{serial:04d}"
-                ])
-                row_num += 1
-
-        # Create table
-        table = Table(table_data, colWidths=[30, 200, 180, 60])
-        table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#238636')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
-            ('TOPPADDING', (0, 0), (-1, 0), 10),
-            ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
-            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 1), (-1, -1), 9),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cccccc')),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9f9f9')]),
-            ('PADDING', (0, 1), (-1, -1), 6),
-        ]))
-
-        elements.append(table)
-
         # Build PDF
         doc.build(elements)
 
