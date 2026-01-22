@@ -62,6 +62,20 @@ PRODUCT_CODES = {
     "LAPB NVYB": "LAPTOP BAG NAVY BLUE",
 }
 
+# Carton capacity per product type (items per carton)
+CARTON_CAPACITIES = {
+    "WALT": 300,      # Wallet - 300 per carton
+    "4PCS": 50,       # 4PC Set - 50 per carton
+    "LAPB": 15,       # Laptop Bag - 15 per carton
+}
+
+def get_carton_capacity(product_code):
+    """Get carton capacity for a product based on its code prefix."""
+    for prefix, capacity in CARTON_CAPACITIES.items():
+        if product_code.startswith(prefix):
+            return capacity
+    return 100  # Default capacity
+
 
 def setup_styles():
     """Configure ttk styles"""
@@ -654,7 +668,20 @@ class BarcodeApp:
             messagebox.showinfo("Success", f"Cart exported to PDF:\n{filename}")
 
     def _generate_pdf(self, filename):
-        """Generate PDF from cart items - designed as a packing slip for carton"""
+        """Generate PDF from cart items - organized by cartons for packing.
+
+        Each carton gets its own page showing:
+        - Carton label (e.g., 1A/1, 1A/2)
+        - Product info
+        - Serial numbers that go in that carton
+
+        Carton capacities:
+        - WALLET: 300 per carton
+        - 4PC SET: 50 per carton
+        - LAPTOP BAG: 15 per carton
+        """
+        from reportlab.platypus import PageBreak
+
         doc = SimpleDocTemplate(filename, pagesize=A4,
                                rightMargin=30, leftMargin=30,
                                topMargin=30, bottomMargin=30)
@@ -668,16 +695,25 @@ class BarcodeApp:
         loc_name = location['name'] if location else "--"
         loc_code = location['code'] if location else "--"
 
-        # Title style - Destination name as main header
-        title_style = ParagraphStyle(
-            'CustomTitle',
+        # Styles
+        carton_title_style = ParagraphStyle(
+            'CartonTitle',
             parent=styles['Heading1'],
-            fontSize=24,
-            spaceAfter=5,
-            alignment=1  # Center
+            fontSize=48,
+            spaceAfter=10,
+            alignment=1,  # Center
+            textColor=colors.HexColor('#000000')
         )
 
-        # Subtitle style
+        dest_style = ParagraphStyle(
+            'Destination',
+            parent=styles['Heading2'],
+            fontSize=24,
+            spaceAfter=5,
+            alignment=1,
+            textColor=colors.HexColor('#333333')
+        )
+
         subtitle_style = ParagraphStyle(
             'Subtitle',
             parent=styles['Normal'],
@@ -687,101 +723,125 @@ class BarcodeApp:
             textColor=colors.HexColor('#666666')
         )
 
-        # Section header style
-        section_style = ParagraphStyle(
-            'Section',
-            parent=styles['Heading2'],
-            fontSize=14,
-            spaceBefore=15,
-            spaceAfter=10,
-            textColor=colors.HexColor('#238636')
-        )
-
-        # Info style
         info_style = ParagraphStyle(
             'Info',
             parent=styles['Normal'],
-            fontSize=11,
-            spaceAfter=3
-        )
-
-        # Large info style for prominent display
-        large_info_style = ParagraphStyle(
-            'LargeInfo',
-            parent=styles['Normal'],
-            fontSize=16,
-            spaceBefore=5,
+            fontSize=12,
             spaceAfter=5,
             alignment=1
         )
 
-        # Destination as main title
-        elements.append(Paragraph(f"{loc_name}", title_style))
-        elements.append(Paragraph(f"Delivery Code: {delivery_code}", subtitle_style))
+        product_style = ParagraphStyle(
+            'Product',
+            parent=styles['Normal'],
+            fontSize=16,
+            spaceBefore=15,
+            spaceAfter=5,
+            alignment=1
+        )
 
-        # Date
-        elements.append(Paragraph(f"<b>Date:</b> {datetime.now().strftime('%Y-%m-%d %H:%M')}", info_style))
-        elements.append(Spacer(1, 15))
+        serial_style = ParagraphStyle(
+            'Serial',
+            parent=styles['Normal'],
+            fontSize=14,
+            spaceAfter=3,
+            alignment=1,
+            textColor=colors.HexColor('#444444')
+        )
 
-        # Calculate totals
-        total_items = sum(item['quantity'] for item in self.cart_items)
+        serial_range_style = ParagraphStyle(
+            'SerialRange',
+            parent=styles['Normal'],
+            fontSize=20,
+            spaceBefore=10,
+            spaceAfter=10,
+            alignment=1,
+            textColor=colors.HexColor('#000000')
+        )
 
-        # Summary box
-        summary_data = [
-            ['Total Items', str(total_items)],
-            ['Delivery Code', delivery_code],
-            ['Destination Code', loc_code],
-        ]
-        summary_table = Table(summary_data, colWidths=[120, 100])
-        summary_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#f0f0f0')),
-            ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
-            ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 12),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#cccccc')),
-            ('PADDING', (0, 0), (-1, -1), 8),
-        ]))
-        elements.append(summary_table)
-        elements.append(Spacer(1, 20))
+        # Split cart items into cartons
+        cartons = []
 
-        # Products section
-        elements.append(Paragraph("Products", section_style))
-
-        # Group items by product for summary
         for item in self.cart_items:
-            product_name = item['product']['name']
             product_code = item['product']['code']
-            qty = item['quantity']
+            product_name = item['product']['name']
+            capacity = get_carton_capacity(product_code)
             start_serial = item['start_serial']
             end_serial = item['end_serial']
 
-            # Product header
-            product_header = ParagraphStyle(
-                'ProductHeader',
-                parent=styles['Normal'],
-                fontSize=12,
-                spaceBefore=10,
-                spaceAfter=5
-            )
+            # Split into cartons based on capacity
+            current_serial = start_serial
+            while current_serial <= end_serial:
+                carton_end = min(current_serial + capacity - 1, end_serial)
+                carton_qty = carton_end - current_serial + 1
+
+                cartons.append({
+                    'product_code': product_code,
+                    'product_name': product_name,
+                    'start_serial': current_serial,
+                    'end_serial': carton_end,
+                    'quantity': carton_qty,
+                    'capacity': capacity,
+                    'location_code': item['location']['code']
+                })
+
+                current_serial = carton_end + 1
+
+        total_cartons = len(cartons)
+
+        # Generate a page for each carton
+        for i, carton in enumerate(cartons):
+            carton_number = i + 1
+            carton_label = f"{delivery_code}/{carton_number}"
+
+            # Large carton label at top
+            elements.append(Spacer(1, 50))
+            elements.append(Paragraph(f"<b>{carton_label}</b>", carton_title_style))
+            elements.append(Spacer(1, 20))
+
+            # Destination
+            elements.append(Paragraph(f"{loc_name}", dest_style))
+            elements.append(Paragraph(f"Destination Code: {loc_code}", subtitle_style))
+
+            elements.append(Spacer(1, 30))
+
+            # Carton info
+            elements.append(Paragraph(f"Carton {carton_number} of {total_cartons}", info_style))
+            elements.append(Paragraph(f"Date: {datetime.now().strftime('%Y-%m-%d')}", info_style))
+
+            elements.append(Spacer(1, 30))
+
+            # Product info
+            elements.append(Paragraph(f"<b>{carton['product_name']}</b>", product_style))
+            elements.append(Paragraph(f"({carton['product_code']})", serial_style))
+
+            elements.append(Spacer(1, 20))
+
+            # Quantity
+            elements.append(Paragraph(f"Quantity: <b>{carton['quantity']}</b> items", info_style))
+
+            elements.append(Spacer(1, 30))
+
+            # Serial range - prominent display
+            elements.append(Paragraph("Serial Numbers:", serial_style))
             elements.append(Paragraph(
-                f"<b>{product_name}</b> ({product_code}) - Qty: {qty}",
-                product_header
+                f"<b>{carton['start_serial']:04d} - {carton['end_serial']:04d}</b>",
+                serial_range_style
             ))
 
-            # Serial range
-            serial_style = ParagraphStyle(
-                'Serial',
-                parent=styles['Normal'],
-                fontSize=10,
-                textColor=colors.HexColor('#666666'),
-                leftIndent=20
-            )
-            elements.append(Paragraph(
-                f"Serials: {start_serial:04d} - {end_serial:04d}",
-                serial_style
-            ))
+            # Barcode format preview
+            barcode_start = f"{carton['location_code']}-{carton['product_code']}-{carton['start_serial']:04d}"
+            barcode_end = f"{carton['location_code']}-{carton['product_code']}-{carton['end_serial']:04d}"
+
+            elements.append(Spacer(1, 20))
+            elements.append(Paragraph("Barcode Range:", serial_style))
+            elements.append(Paragraph(f"{barcode_start}", info_style))
+            elements.append(Paragraph("to", info_style))
+            elements.append(Paragraph(f"{barcode_end}", info_style))
+
+            # Add page break if not last carton
+            if i < len(cartons) - 1:
+                elements.append(PageBreak())
 
         # Build PDF
         doc.build(elements)
