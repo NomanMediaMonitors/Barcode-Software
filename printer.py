@@ -89,8 +89,8 @@ class TSCPrinter:
         commands = [self._get_tspl_header()]
 
         # Sticker layout (each sticker: 51mm x 38mm = 408 x 304 dots)
-        margin = 50              # ~5.6mm left margin (moved further right)
-        top_margin = 35          # ~4.4mm top margin
+        margin = 70              # ~8.75mm left margin (centered horizontally)
+        top_margin = 50          # ~6.25mm top margin (centered vertically)
         usable_width = self.sticker_width - (margin * 2)  # ~318 dots
 
         # X offset for right sticker
