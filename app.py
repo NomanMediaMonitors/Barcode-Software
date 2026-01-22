@@ -371,7 +371,12 @@ class BarcodeApp:
         btn_frame = tk.Frame(header, bg=COLORS["card"])
         btn_frame.pack(side=tk.RIGHT)
 
-        export_pdf_btn = tk.Button(btn_frame, text="Export PDF", font=("Segoe UI", 9),
+        delivery_note_btn = tk.Button(btn_frame, text="Delivery Note", font=("Segoe UI", 9),
+                              bg=COLORS["accent"], fg="white", border=0, padx=12, pady=6,
+                              cursor="hand2", command=self._export_delivery_note)
+        delivery_note_btn.pack(side=tk.LEFT, padx=(0, 10))
+
+        export_pdf_btn = tk.Button(btn_frame, text="Carton PDFs", font=("Segoe UI", 9),
                               bg=COLORS["warning"], fg="white", border=0, padx=12, pady=6,
                               cursor="hand2", command=self._export_cart_pdf)
         export_pdf_btn.pack(side=tk.LEFT, padx=(0, 10))
@@ -842,6 +847,241 @@ class BarcodeApp:
             # Add page break if not last carton
             if i < len(cartons) - 1:
                 elements.append(PageBreak())
+
+        # Build PDF
+        doc.build(elements)
+
+    def _export_delivery_note(self):
+        """Export a complete delivery note summary PDF"""
+        if not self.cart_items:
+            messagebox.showwarning("Warning", "Cart is empty")
+            return
+
+        if not REPORTLAB_AVAILABLE:
+            messagebox.showerror("Error", "PDF export requires reportlab library.\n\nInstall with: pip install reportlab")
+            return
+
+        delivery_code = self.delivery_var.get()
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("PDF Files", "*.pdf"), ("All Files", "*.*")],
+            initialfile=f"delivery_note_{delivery_code}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        )
+
+        if filename:
+            self._generate_delivery_note_pdf(filename)
+            messagebox.showinfo("Success", f"Delivery note exported to PDF:\n{filename}")
+
+    def _generate_delivery_note_pdf(self, filename):
+        """Generate a complete delivery note PDF with all details.
+
+        Shows complete summary of the delivery including:
+        - Delivery code and destination
+        - All products with quantities and serial ranges
+        - Carton breakdown for each product
+        - Total cartons needed
+        """
+        doc = SimpleDocTemplate(filename, pagesize=A4,
+                               rightMargin=30, leftMargin=30,
+                               topMargin=30, bottomMargin=30)
+
+        elements = []
+        styles = getSampleStyleSheet()
+
+        # Get delivery info
+        delivery_code = self.delivery_var.get()
+        location = self._get_selected_location()
+        loc_name = location['name'] if location else "--"
+        loc_code = location['code'] if location else "--"
+
+        # Styles
+        title_style = ParagraphStyle(
+            'Title',
+            parent=styles['Heading1'],
+            fontSize=36,
+            spaceAfter=5,
+            alignment=1,
+            textColor=colors.HexColor('#000000')
+        )
+
+        dest_style = ParagraphStyle(
+            'Destination',
+            parent=styles['Heading2'],
+            fontSize=24,
+            spaceAfter=10,
+            alignment=1,
+            textColor=colors.HexColor('#333333')
+        )
+
+        subtitle_style = ParagraphStyle(
+            'Subtitle',
+            parent=styles['Normal'],
+            fontSize=12,
+            spaceAfter=5,
+            alignment=1,
+            textColor=colors.HexColor('#666666')
+        )
+
+        section_style = ParagraphStyle(
+            'Section',
+            parent=styles['Heading2'],
+            fontSize=16,
+            spaceBefore=20,
+            spaceAfter=10,
+            textColor=colors.HexColor('#238636')
+        )
+
+        info_style = ParagraphStyle(
+            'Info',
+            parent=styles['Normal'],
+            fontSize=12,
+            spaceAfter=5
+        )
+
+        # Title - Delivery Note
+        elements.append(Paragraph(f"<b>DELIVERY NOTE</b>", title_style))
+        elements.append(Spacer(1, 10))
+        elements.append(Paragraph(f"<b>{delivery_code}</b>", title_style))
+        elements.append(Spacer(1, 20))
+
+        # Destination
+        elements.append(Paragraph(f"{loc_name}", dest_style))
+        elements.append(Paragraph(f"Destination Code: {loc_code}", subtitle_style))
+        elements.append(Paragraph(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}", subtitle_style))
+
+        elements.append(Spacer(1, 30))
+
+        # Calculate totals and carton breakdown
+        total_items = sum(item['quantity'] for item in self.cart_items)
+        total_cartons = 0
+        product_summary = []
+
+        for item in self.cart_items:
+            product_code = item['product']['code']
+            product_name = item['product']['name']
+            qty = item['quantity']
+            capacity = get_carton_capacity(product_code)
+            num_cartons = (qty + capacity - 1) // capacity  # Ceiling division
+
+            product_summary.append({
+                'name': product_name,
+                'code': product_code,
+                'quantity': qty,
+                'capacity': capacity,
+                'cartons': num_cartons,
+                'start_serial': item['start_serial'],
+                'end_serial': item['end_serial'],
+                'location_code': item['location']['code']
+            })
+            total_cartons += num_cartons
+
+        # Summary Table
+        elements.append(Paragraph("Summary", section_style))
+
+        summary_data = [
+            ['Total Items', str(total_items)],
+            ['Total Cartons', str(total_cartons)],
+            ['Delivery Code', delivery_code],
+            ['Destination', f"{loc_code} - {loc_name}"],
+        ]
+        summary_table = Table(summary_data, colWidths=[150, 300])
+        summary_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#f0f0f0')),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+            ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 12),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#cccccc')),
+            ('PADDING', (0, 0), (-1, -1), 10),
+        ]))
+        elements.append(summary_table)
+
+        # Products Detail Section
+        elements.append(Spacer(1, 20))
+        elements.append(Paragraph("Product Details", section_style))
+
+        # Product table header
+        product_data = [['Product', 'Qty', 'Per Carton', 'Cartons', 'Serial Range']]
+
+        for prod in product_summary:
+            serial_range = f"{prod['start_serial']:04d} - {prod['end_serial']:04d}"
+            product_data.append([
+                f"{prod['name']}\n({prod['code']})",
+                str(prod['quantity']),
+                str(prod['capacity']),
+                str(prod['cartons']),
+                serial_range
+            ])
+
+        product_table = Table(product_data, colWidths=[150, 50, 70, 60, 120])
+        product_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#238636')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('ALIGN', (1, 0), (-1, -1), 'CENTER'),
+            ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#cccccc')),
+            ('PADDING', (0, 0), (-1, -1), 8),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+        elements.append(product_table)
+
+        # Carton Breakdown Section
+        elements.append(Spacer(1, 20))
+        elements.append(Paragraph("Carton Breakdown", section_style))
+
+        carton_number = 1
+        carton_data = [['Carton', 'Product', 'Quantity', 'Serial Range']]
+
+        for prod in product_summary:
+            capacity = prod['capacity']
+            current_serial = prod['start_serial']
+            end_serial = prod['end_serial']
+
+            while current_serial <= end_serial:
+                carton_end = min(current_serial + capacity - 1, end_serial)
+                carton_qty = carton_end - current_serial + 1
+                serial_range = f"{current_serial:04d} - {carton_end:04d}"
+
+                carton_data.append([
+                    f"{delivery_code}/{carton_number}",
+                    prod['code'],
+                    str(carton_qty),
+                    serial_range
+                ])
+
+                carton_number += 1
+                current_serial = carton_end + 1
+
+        carton_table = Table(carton_data, colWidths=[80, 100, 70, 120])
+        carton_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#333333')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#cccccc')),
+            ('PADDING', (0, 0), (-1, -1), 6),
+        ]))
+        elements.append(carton_table)
+
+        # Footer note
+        elements.append(Spacer(1, 30))
+        footer_style = ParagraphStyle(
+            'Footer',
+            parent=styles['Normal'],
+            fontSize=10,
+            alignment=1,
+            textColor=colors.HexColor('#888888')
+        )
+        elements.append(Paragraph(
+            f"Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            footer_style
+        ))
 
         # Build PDF
         doc.build(elements)
