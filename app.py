@@ -64,8 +64,8 @@ PRODUCT_CODES = {
 
 # Carton capacity per product type (items per carton)
 CARTON_CAPACITIES = {
-    "WALT": 300,      # Wallet - 300 per carton
-    "4PCS": 50,       # 4PC Set - 50 per carton
+    "WALT": 150,      # Wallet - 150 per carton
+    "4PCS": 80,       # 4PC Set - 80 per carton
     "LAPB": 15,       # Laptop Bag - 15 per carton
 }
 
