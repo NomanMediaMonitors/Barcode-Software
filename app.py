@@ -76,6 +76,151 @@ def get_carton_capacity(product_code):
             return capacity
     return 100  # Default capacity
 
+def get_product_type(product_code):
+    """Get product type prefix for grouping (WALT, 4PCS, LAPB, or OTHER)."""
+    for prefix in CARTON_CAPACITIES.keys():
+        if product_code.startswith(prefix):
+            return prefix
+    return "OTHER"
+
+def pack_cartons_smart(cart_items):
+    """Pack items into cartons with smart mixing.
+
+    Strategy:
+    1. Group items by product type (WALT, 4PCS, LAPB, etc.)
+    2. For each type, first fill complete cartons with single products
+    3. Collect remaining items that don't fill a complete carton
+    4. Mix remaining items of same type into shared cartons
+
+    Returns list of carton dicts, each containing:
+    - items: list of {product_code, product_name, start_serial, end_serial, quantity, location_code}
+    - capacity: carton capacity
+    - total_quantity: total items in carton
+    - is_mixed: True if carton contains multiple products
+    """
+    from collections import defaultdict
+
+    # Group cart items by product type
+    items_by_type = defaultdict(list)
+    for item in cart_items:
+        product_type = get_product_type(item['product']['code'])
+        items_by_type[product_type].append(item)
+
+    all_cartons = []
+
+    for product_type, items in items_by_type.items():
+        capacity = get_carton_capacity(items[0]['product']['code'])
+        remainders = []  # Items that don't fill a complete carton
+
+        # Process each item - fill complete cartons first
+        for item in items:
+            product_code = item['product']['code']
+            product_name = item['product']['name']
+            location_code = item['location']['code']
+            start_serial = item['start_serial']
+            end_serial = item['end_serial']
+
+            current_serial = start_serial
+
+            # Fill complete cartons with this single product
+            while current_serial <= end_serial:
+                remaining_qty = end_serial - current_serial + 1
+
+                if remaining_qty >= capacity:
+                    # Full carton with single product
+                    carton_end = current_serial + capacity - 1
+                    all_cartons.append({
+                        'items': [{
+                            'product_code': product_code,
+                            'product_name': product_name,
+                            'start_serial': current_serial,
+                            'end_serial': carton_end,
+                            'quantity': capacity,
+                            'location_code': location_code
+                        }],
+                        'capacity': capacity,
+                        'total_quantity': capacity,
+                        'is_mixed': False,
+                        'product_type': product_type
+                    })
+                    current_serial = carton_end + 1
+                else:
+                    # Remainder - save for mixing
+                    remainders.append({
+                        'product_code': product_code,
+                        'product_name': product_name,
+                        'start_serial': current_serial,
+                        'end_serial': end_serial,
+                        'quantity': remaining_qty,
+                        'location_code': location_code
+                    })
+                    break
+
+        # Now pack remainders into mixed cartons
+        if remainders:
+            current_carton_items = []
+            current_carton_qty = 0
+
+            for remainder in remainders:
+                remaining_to_pack = remainder['quantity']
+                current_start = remainder['start_serial']
+
+                while remaining_to_pack > 0:
+                    space_in_carton = capacity - current_carton_qty
+
+                    if remaining_to_pack <= space_in_carton:
+                        # Fits in current carton
+                        current_carton_items.append({
+                            'product_code': remainder['product_code'],
+                            'product_name': remainder['product_name'],
+                            'start_serial': current_start,
+                            'end_serial': current_start + remaining_to_pack - 1,
+                            'quantity': remaining_to_pack,
+                            'location_code': remainder['location_code']
+                        })
+                        current_carton_qty += remaining_to_pack
+                        remaining_to_pack = 0
+                    else:
+                        # Fill current carton, continue with next
+                        if space_in_carton > 0:
+                            current_carton_items.append({
+                                'product_code': remainder['product_code'],
+                                'product_name': remainder['product_name'],
+                                'start_serial': current_start,
+                                'end_serial': current_start + space_in_carton - 1,
+                                'quantity': space_in_carton,
+                                'location_code': remainder['location_code']
+                            })
+                            current_start += space_in_carton
+                            remaining_to_pack -= space_in_carton
+
+                        # Save current carton and start new one
+                        is_mixed = len(current_carton_items) > 1 or (
+                            len(current_carton_items) == 1 and
+                            current_carton_items[0]['quantity'] < capacity
+                        )
+                        all_cartons.append({
+                            'items': current_carton_items,
+                            'capacity': capacity,
+                            'total_quantity': capacity,
+                            'is_mixed': len(set(i['product_code'] for i in current_carton_items)) > 1,
+                            'product_type': product_type
+                        })
+                        current_carton_items = []
+                        current_carton_qty = 0
+
+            # Don't forget the last partial carton
+            if current_carton_items:
+                all_cartons.append({
+                    'items': current_carton_items,
+                    'capacity': capacity,
+                    'total_quantity': current_carton_qty,
+                    'is_mixed': len(set(i['product_code'] for i in current_carton_items)) > 1,
+                    'product_type': product_type
+                })
+
+    return all_cartons
+
 
 def setup_styles():
     """Configure ttk styles"""
@@ -764,35 +909,20 @@ class BarcodeApp:
             textColor=colors.HexColor('#000000')
         )
 
-        # Split cart items into cartons
-        cartons = []
-
-        for item in self.cart_items:
-            product_code = item['product']['code']
-            product_name = item['product']['name']
-            capacity = get_carton_capacity(product_code)
-            start_serial = item['start_serial']
-            end_serial = item['end_serial']
-
-            # Split into cartons based on capacity
-            current_serial = start_serial
-            while current_serial <= end_serial:
-                carton_end = min(current_serial + capacity - 1, end_serial)
-                carton_qty = carton_end - current_serial + 1
-
-                cartons.append({
-                    'product_code': product_code,
-                    'product_name': product_name,
-                    'start_serial': current_serial,
-                    'end_serial': carton_end,
-                    'quantity': carton_qty,
-                    'capacity': capacity,
-                    'location_code': item['location']['code']
-                })
-
-                current_serial = carton_end + 1
-
+        # Use smart packing to fill cartons efficiently and mix remainders
+        cartons = pack_cartons_smart(self.cart_items)
         total_cartons = len(cartons)
+
+        # Style for mixed carton indicator
+        mixed_style = ParagraphStyle(
+            'Mixed',
+            parent=styles['Normal'],
+            fontSize=14,
+            spaceBefore=5,
+            spaceAfter=5,
+            alignment=1,
+            textColor=colors.HexColor('#cc6600')
+        )
 
         # Generate a page for each carton
         for i, carton in enumerate(cartons):
@@ -814,35 +944,37 @@ class BarcodeApp:
             elements.append(Paragraph(f"Carton {carton_number} of {total_cartons}", info_style))
             elements.append(Paragraph(f"Date: {datetime.now().strftime('%Y-%m-%d')}", info_style))
 
-            elements.append(Spacer(1, 30))
+            # Show mixed carton indicator if applicable
+            if carton['is_mixed']:
+                elements.append(Spacer(1, 10))
+                elements.append(Paragraph("<b>** MIXED CARTON **</b>", mixed_style))
 
-            # Product info
-            elements.append(Paragraph(f"<b>{carton['product_name']}</b>", product_style))
-            elements.append(Paragraph(f"({carton['product_code']})", serial_style))
+            elements.append(Spacer(1, 20))
+
+            # Total quantity for carton
+            elements.append(Paragraph(f"Total Quantity: <b>{carton['total_quantity']}</b> items", info_style))
 
             elements.append(Spacer(1, 20))
 
-            # Quantity
-            elements.append(Paragraph(f"Quantity: <b>{carton['quantity']}</b> items", info_style))
+            # Product info - show all items in carton
+            for item_idx, item in enumerate(carton['items']):
+                if item_idx > 0:
+                    elements.append(Spacer(1, 15))
 
-            elements.append(Spacer(1, 30))
+                elements.append(Paragraph(f"<b>{item['product_name']}</b>", product_style))
+                elements.append(Paragraph(f"({item['product_code']})", serial_style))
+                elements.append(Paragraph(f"Qty: <b>{item['quantity']}</b>", info_style))
 
-            # Serial range - prominent display
-            elements.append(Paragraph("Serial Numbers:", serial_style))
-            elements.append(Paragraph(
-                f"<b>{carton['start_serial']:04d} - {carton['end_serial']:04d}</b>",
-                serial_range_style
-            ))
+                # Serial range
+                elements.append(Paragraph(
+                    f"Serial: <b>{item['start_serial']:04d} - {item['end_serial']:04d}</b>",
+                    serial_style
+                ))
 
-            # Barcode format preview
-            barcode_start = f"{carton['location_code']}-{carton['product_code']}-{carton['start_serial']:04d}"
-            barcode_end = f"{carton['location_code']}-{carton['product_code']}-{carton['end_serial']:04d}"
-
-            elements.append(Spacer(1, 20))
-            elements.append(Paragraph("Barcode Range:", serial_style))
-            elements.append(Paragraph(f"{barcode_start}", info_style))
-            elements.append(Paragraph("to", info_style))
-            elements.append(Paragraph(f"{barcode_end}", info_style))
+                # Barcode format preview
+                barcode_start = f"{item['location_code']}-{item['product_code']}-{item['start_serial']:04d}"
+                barcode_end = f"{item['location_code']}-{item['product_code']}-{item['end_serial']:04d}"
+                elements.append(Paragraph(f"{barcode_start} to {barcode_end}", info_style))
 
             # Add page break if not last carton
             if i < len(cartons) - 1:
@@ -951,29 +1083,31 @@ class BarcodeApp:
 
         elements.append(Spacer(1, 30))
 
-        # Calculate totals and carton breakdown
+        # Use smart packing to calculate cartons with mixing
+        cartons = pack_cartons_smart(self.cart_items)
         total_items = sum(item['quantity'] for item in self.cart_items)
-        total_cartons = 0
-        product_summary = []
+        total_cartons = len(cartons)
 
+        # Build product summary for the product details table
+        product_summary = []
         for item in self.cart_items:
             product_code = item['product']['code']
             product_name = item['product']['name']
             qty = item['quantity']
             capacity = get_carton_capacity(product_code)
-            num_cartons = (qty + capacity - 1) // capacity  # Ceiling division
 
             product_summary.append({
                 'name': product_name,
                 'code': product_code,
                 'quantity': qty,
                 'capacity': capacity,
-                'cartons': num_cartons,
                 'start_serial': item['start_serial'],
                 'end_serial': item['end_serial'],
                 'location_code': item['location']['code']
             })
-            total_cartons += num_cartons
+
+        # Count mixed cartons
+        mixed_cartons = sum(1 for c in cartons if c['is_mixed'])
 
         # Summary Table
         elements.append(Paragraph("Summary", section_style))
@@ -981,6 +1115,7 @@ class BarcodeApp:
         summary_data = [
             ['Total Items', str(total_items)],
             ['Total Cartons', str(total_cartons)],
+            ['Mixed Cartons', str(mixed_cartons)],
             ['Delivery Code', delivery_code],
             ['Destination', f"{loc_code} - {loc_name}"],
         ]
@@ -1002,7 +1137,7 @@ class BarcodeApp:
         elements.append(Paragraph("Product Details", section_style))
 
         # Product table header
-        product_data = [['Product', 'Qty', 'Per Carton', 'Cartons', 'Serial Range']]
+        product_data = [['Product', 'Qty', 'Per Carton', 'Serial Range']]
 
         for prod in product_summary:
             serial_range = f"{prod['start_serial']:04d} - {prod['end_serial']:04d}"
@@ -1010,11 +1145,10 @@ class BarcodeApp:
                 f"{prod['name']}\n({prod['code']})",
                 str(prod['quantity']),
                 str(prod['capacity']),
-                str(prod['cartons']),
                 serial_range
             ])
 
-        product_table = Table(product_data, colWidths=[150, 50, 70, 60, 120])
+        product_table = Table(product_data, colWidths=[180, 60, 80, 130])
         product_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#238636')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
@@ -1033,30 +1167,36 @@ class BarcodeApp:
         elements.append(Spacer(1, 20))
         elements.append(Paragraph("Carton Breakdown", section_style))
 
-        carton_number = 1
-        carton_data = [['Carton', 'Product', 'Quantity', 'Serial Range']]
+        carton_data = [['Carton', 'Product(s)', 'Quantity', 'Serial Range(s)']]
 
-        for prod in product_summary:
-            capacity = prod['capacity']
-            current_serial = prod['start_serial']
-            end_serial = prod['end_serial']
+        for carton_idx, carton in enumerate(cartons):
+            carton_label = f"{delivery_code}/{carton_idx + 1}"
 
-            while current_serial <= end_serial:
-                carton_end = min(current_serial + capacity - 1, end_serial)
-                carton_qty = carton_end - current_serial + 1
-                serial_range = f"{current_serial:04d} - {carton_end:04d}"
+            if carton['is_mixed']:
+                # Mixed carton - show all products
+                products_str = "MIXED:\n" + "\n".join(
+                    f"{item['product_code']}" for item in carton['items']
+                )
+                qty_str = "\n".join(str(item['quantity']) for item in carton['items'])
+                serial_str = "\n".join(
+                    f"{item['start_serial']:04d}-{item['end_serial']:04d}"
+                    for item in carton['items']
+                )
+            else:
+                # Single product carton
+                item = carton['items'][0]
+                products_str = item['product_code']
+                qty_str = str(item['quantity'])
+                serial_str = f"{item['start_serial']:04d} - {item['end_serial']:04d}"
 
-                carton_data.append([
-                    f"{delivery_code}/{carton_number}",
-                    prod['code'],
-                    str(carton_qty),
-                    serial_range
-                ])
+            carton_data.append([
+                carton_label,
+                products_str,
+                qty_str,
+                serial_str
+            ])
 
-                carton_number += 1
-                current_serial = carton_end + 1
-
-        carton_table = Table(carton_data, colWidths=[80, 100, 70, 120])
+        carton_table = Table(carton_data, colWidths=[70, 130, 60, 120])
         carton_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#333333')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
