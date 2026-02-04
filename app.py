@@ -66,7 +66,7 @@ PRODUCT_CODES = {
 CARTON_CAPACITIES = {
     "WALT": 150,      # Wallet - 150 per carton
     "4PCS": 80,       # 4PC Set - 80 per carton
-    "LAPB": 13,       # Laptop Bag - 13 per carton
+    "LAPB": 12,       # Laptop Bag - 12 per carton
 }
 
 def get_carton_capacity(product_code):
